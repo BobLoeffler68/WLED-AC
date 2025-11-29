@@ -3187,7 +3187,8 @@ static const char _data_FX_MODE_ROLLINGBALLS[] PROGMEM = "Rolling Balls@!,# of b
 *   custom2 slider is for blurring the LEDs in the segment.
 *   custom3 slider is for selecting the # of ghosts (between 2 and 8).
 *   check1 is for displaying White Dots that PacMan eats.  Enabled will show white dots.  Disabled will not show any white dots (all leds will be black).
-*   check2 is for the Compact Dots mode of displaying white dots.  Enabled will show white dots in every LED.  Disabled will show black LEDs between the white dots.
+*   check2 is for Overlay mode (enabled is Overlay, disabled is no overlay).
+*   check3 is for the Compact Dots mode of displaying white dots.  Enabled will show white dots in every LED.  Disabled will show black LEDs between the white dots.
 *   aux0 is used to keep track of the previous number of power dots in case the user selects a different number with the intensity slider.
 *   aux1 is the main counter for timing.
 */
@@ -3210,6 +3211,7 @@ static uint16_t mode_pacman(void) {
   unsigned maxPowerDots = SEGLEN / 10;  // max is 1 every 10 pixels
   unsigned numPowerDots = map(SEGMENT.intensity, 0, 255, 1, maxPowerDots);
   unsigned numGhosts = map(SEGMENT.custom3, 0, 31, 2, 8);
+  bool overlayMode = SEGMENT.check2;
 
   // Pack two values into one unsigned int (SEGENV.aux0)
   unsigned short combined_value = (numPowerDots << 8) | numGhosts;
@@ -3260,11 +3262,12 @@ static uint16_t mode_pacman(void) {
     SEGENV.aux1++;
   }
 
-  SEGMENT.fill(BLACK);
+  // Clear background if not in overlay mode
+  if (!overlayMode) SEGMENT.fill(BLACK);
 
   // Draw white dots in front of PacMan if option selected
   if (SEGMENT.check1) {
-    int step = SEGMENT.check2 ? 1 : 2;  // Compact or spaced dots
+    int step = SEGMENT.check3 ? 1 : 2;  // Compact or spaced dots
     for (int i = SEGLEN - 1; i > character[PACMAN].topPos; i -= step) {
       SEGMENT.setPixelColor(i, WHITEISH);
     }
@@ -3369,7 +3372,7 @@ static uint16_t mode_pacman(void) {
   SEGMENT.blur(SEGMENT.custom2>>1);
   return FRAMETIME;
 }
-static const char _data_FX_MODE_PACMAN[] PROGMEM = "PacMan@Speed,# of PowerDots,Blink distance,Blur,# of Ghosts,Dots,Compact,;;!;1;m12=0,sx=192,ix=64,c1=64,c2=0,c3=12,o1=1";
+static const char _data_FX_MODE_PACMAN[] PROGMEM = "PacMan@Speed,# of PowerDots,Blink distance,Blur,# of Ghosts,Dots,Overlay,Compact;;!;1;m12=0,sx=192,ix=64,c1=64,c2=0,c3=12,o1=1,o2=0";
 
 
 /*

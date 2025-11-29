@@ -3184,6 +3184,7 @@ static const char _data_FX_MODE_ROLLINGBALLS[] PROGMEM = "Rolling Balls@!,# of b
 *   speed slider is for speed.
 *   intensity slider is for selecting the number of power dots.
 *   custom1 slider is for selecting the LED where the ghosts will start blinking blue.
+*   custom2 slider is for blurring the LEDs in the segment.
 *   custom3 slider is for selecting the # of ghosts (between 2 and 8).
 *   check1 is for displaying White Dots that PacMan eats.  Enabled will show white dots.  Disabled will not show any white dots (all leds will be black).
 *   check2 is for the Compact Dots mode of displaying white dots.  Enabled will show white dots in every LED.  Disabled will show black LEDs between the white dots.
@@ -3365,16 +3366,18 @@ static uint16_t mode_pacman(void) {
     character[PACMAN].topPos = character[PACMAN].pos;
   }
 
+  SEGMENT.blur(SEGMENT.custom2>>1);
   return FRAMETIME;
 }
-static const char _data_FX_MODE_PACMAN[] PROGMEM = "PacMan@Speed,# of Power Dots,Start Blinking distance,,# of Ghosts,White Dots,Compact Dots,;;!;1;m12=0,sx=192,ix=64,c1=64,c3=12,o1=1";
+static const char _data_FX_MODE_PACMAN[] PROGMEM = "PacMan@Speed,# of PowerDots,Blink distance,Blur,# of Ghosts,Dots,Compact,;;!;1;m12=0,sx=192,ix=64,c1=64,c2=0,c3=12,o1=1";
 
 
 /*
 /  Ants (created by making modifications to the Rolling Balls code) - Bob Loeffler 2025
 *   First slider is for the ants' speed.
 *   Second slider is for the # of ants.
-*   Third slider is for the Ants' size.
+*   Third slider (custom1) is for the Ants' size.
+*   Fourth slider (custom2) is for blurring the LEDs in the segment.
 *   Checkbox1 is for Gathering food (enabled if you want the ants to gather food, disabled if they are just walking).
 *     We will switch directions when they get to the beginning or end of the segment when gathering food.
 *     When gathering food, the Pass By option will automatically be enabled so they can drop off their food easier (and look for more food).
@@ -3550,9 +3553,10 @@ static uint16_t mode_ants(void) {
     ants[i].position = newPosition;
   }
 
+  SEGMENT.blur(SEGMENT.custom2>>1);
   return FRAMETIME;
 }
-static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant size,,,Gathering food,Overlay,Pass by;!,!,!;!;1;sx=192,ix=255,c1=32,o1=1,o3=1";
+static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant size,Blur,,Gathering food,Overlay,Pass by;!,!,!;!;1;sx=192,ix=255,c1=32,c2=0,o1=1,o3=1";
 
 
 /*

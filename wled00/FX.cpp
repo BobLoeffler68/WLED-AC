@@ -3562,6 +3562,131 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 
 
 /*
+/  Morse Code by Bob Loeffler
+*    With help from code by automaticaddison.com
+*    aux0 is the pixel or LED index
+*/
+
+// Draw the Morse code for the input letter or number
+void draw_morse_code(const char *morse_code) {
+  unsigned int i = 0;
+  
+  // Draw the dots and dashes
+  while (morse_code[i] != '\0') {
+    // it's a dot which is 1 pixel
+    if (morse_code[i] == '.') {
+      SEGMENT.setPixelColor(SEGENV.aux0, WHITE);
+      SEGENV.aux0++;
+    }
+    else { // Must be a dash which is 3 dots
+      for (unsigned int x = 0; x < 3; x++) {
+        SEGMENT.setPixelColor(SEGENV.aux0 + x, WHITE);
+      }
+      SEGENV.aux0 = SEGENV.aux0 + 3;
+    }
+    
+    // Draw 1 space between parts of a letter or number
+    SEGMENT.setPixelColor(SEGENV.aux0, BLACK);
+    SEGENV.aux0++;
+
+    i++;
+  }
+    
+  // Draw 3 spaces between two letters
+  for (unsigned int x = 0; x < 3; x++) {
+    SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
+  }
+  SEGENV.aux0 = SEGENV.aux0 + 3;
+}
+
+static uint16_t mode_morsecode(void) {
+  if (SEGLEN < 1) return mode_static();
+ // if (!SEGENV.allocateData(SEGLEN)) return mode_static(); //allocation failed
+
+  uint32_t cycleTime = 40 + (255 - SEGMENT.speed);
+  uint32_t it = strip.now / cycleTime;
+  if (SEGENV.step != it) {
+    SEGENV.aux0++;
+    SEGENV.step = it;
+    SEGMENT.setPixelColor(SEGENV.aux0, GREEN);
+  }
+
+  // A-Z in Morse Code
+  const char *letters[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--",
+                     "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
+  // 0-9 in Morse Code
+  const char *numbers[] = {"-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."};
+  
+  // Initialize on first call
+  if (SEGENV.call == 0 || (SEGENV.aux0 > SEGLEN-1)) {
+    SEGENV.aux0 = 0;
+  }
+
+ // if (strip.now > SEGENV.step) {
+ //   SEGENV.step = strip.now;
+ //   SEGENV.aux1++;
+ // }
+
+  // Move dots and dashes based on speed setting
+  //bool moveDotsDashes = (SEGENV.aux1 % map(SEGMENT.speed, 0, 255, 15, 1) == 0);
+  // update positions of characters if it's time to do so
+  //if (moveDotsDashes) {
+  //  pixelIndex += 1;
+  //}
+
+  // Clear background if not in smear mode
+  bool smearMode = SEGMENT.check2;
+  if (!smearMode) SEGMENT.fill(BLACK);
+
+  char text[WLED_MAX_SEGNAME_LEN+1] = {'\0'};
+  size_t len = 0;
+  
+  if (SEGMENT.name) len = strlen(SEGMENT.name);
+  if (len == 0) { // fallback if empty segment name: display "I love WLED" in morse code
+    sprintf_P(text, PSTR("I Love WLED"));
+  } else {
+    sprintf_P(text, SEGMENT.name);
+  }
+
+  for (int i = 0; text[i] != '\0'; i++) {
+    text[i] = toupper(text[i]);
+  }
+
+  // For each character in the segment's string...
+  for (unsigned int z = 0; z < strlen(text); z++) {
+    // Check for letters and draw their morse code
+    if (text[z] >= 'A' && text[z] <= 'Z') {
+      draw_morse_code(letters[text[z] - 'A']);
+    }
+    // Check for numbers and draw their morse code
+    else if (text[z] >= '0' && text[z] <= '9') {
+      draw_morse_code(numbers[text[z] - '0']);
+    }
+    // Check for a space between words
+    else if (text[z] == ' ') {
+      // Put 7 spaces between each word in each message
+      for (unsigned int x = 0; x < 7; x++) {
+        SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
+      }
+      SEGENV.aux0 = SEGENV.aux0 + 7;
+    }
+    // Done with the last character in the string, so draw end of message code and then 7 spaces
+    if (z == strlen(text) - 1) {
+      draw_morse_code(".-.-.");  // end of message with the special 'AR' code
+      // Put 7 spaces at end
+      for (unsigned int x = 0; x < 7; x++) {
+        SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
+      }
+      SEGENV.aux0 = SEGENV.aux0 + 7;
+    }
+  }
+
+  return FRAMETIME;
+}
+static const char _data_FX_MODE_PS_MORSECODE[] PROGMEM = "Morse Code@!,,,,,,Smear,;;!;1;";
+
+
+/*
 * Sinelon stolen from FASTLED examples
 */
 static uint16_t sinelon_base(bool dual, bool rainbow=false) {
@@ -11152,6 +11277,7 @@ static const char _data_FX_MODE_PS_SPRINGY[] PROGMEM = "PS Springy@Stiffness,Dam
 
 #endif // WLED_DISABLE_PARTICLESYSTEM1D
 
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // mode data
 static const char _data_RESERVED[] PROGMEM = "RSVD";
@@ -11315,6 +11441,7 @@ void WS2812FX::setupEffectData() {
   addEffect(FX_MODE_DYNAMIC_SMOOTH, &mode_dynamic_smooth, _data_FX_MODE_DYNAMIC_SMOOTH);
   addEffect(FX_MODE_PACMAN, &mode_pacman, _data_FX_MODE_PACMAN);
   addEffect(FX_MODE_ANTS, &mode_ants, _data_FX_MODE_ANTS);
+  addEffect(FX_MODE_MORSECODE, &mode_morsecode, _data_FX_MODE_PS_MORSECODE);
 
   // --- 1D audio effects ---
   addEffect(FX_MODE_PIXELS, &mode_pixels, _data_FX_MODE_PIXELS);

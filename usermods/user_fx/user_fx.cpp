@@ -2,6 +2,34 @@
 
 // for information how FX metadata strings work see https://kno.wled.ge/interfaces/json-api/#effect-metadata
 
+#if !(defined(WLED_DISABLE_PARTICLESYSTEM2D) && defined(WLED_DISABLE_PARTICLESYSTEM1D))
+  #include "FXparticleSystem.h" // include particle system code only if at least one system is enabled
+  #ifdef WLED_DISABLE_PARTICLESYSTEM2D
+    #define WLED_PS_DONT_REPLACE_2D_FX
+  #endif
+  #ifdef WLED_DISABLE_PARTICLESYSTEM1D
+    #define WLED_PS_DONT_REPLACE_1D_FX
+  #endif
+  #ifdef ESP8266
+    #if !defined(WLED_DISABLE_PARTICLESYSTEM2D) && !defined(WLED_DISABLE_PARTICLESYSTEM1D)
+      #error ESP8266 does not support 1D and 2D particle systems simultaneously. Please disable one of them.
+    #endif
+  #endif
+#else
+  #define WLED_PS_DONT_REPLACE_1D_FX
+  #define WLED_PS_DONT_REPLACE_2D_FX
+#endif
+#ifdef WLED_PS_DONT_REPLACE_FX
+  #define WLED_PS_DONT_REPLACE_1D_FX
+  #define WLED_PS_DONT_REPLACE_2D_FX
+#endif
+
+// paletteBlend: 0 - wrap when moving, 1 - always wrap, 2 - never wrap, 3 - none (undefined)
+#define PALETTE_SOLID_WRAP   (strip.paletteBlend == 1 || strip.paletteBlend == 3)
+#define PALETTE_MOVING_WRAP !(strip.paletteBlend == 2 || (strip.paletteBlend == 0 && SEGMENT.speed == 0))
+
+#define indexToVStrip(index, stripNr) ((index) | (int((stripNr)+1)<<16))
+
 // static effect, used if an effect fails to initialize
 static uint16_t mode_static(void) {
   SEGMENT.fill(SEGCOLOR(0));
@@ -277,257 +305,18 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 
 
 /*
-/  Morse Code by Bob Loeffler
-*    With help from code by automaticaddison.com
-*    aux0 is the pixel (LED) index
-
-// Draw the Morse code for the input letter or number
-void draw_morse_code(const char *morse_code) {
-  unsigned int i = 0;
-  
-  // Draw the dots and dashes
-  while (morse_code[i] != '\0') {
-    // it's a dot which is 1 pixel
-    if (morse_code[i] == '.') {
-      SEGMENT.setPixelColor(SEGENV.aux0, WHITE);
-      SEGENV.aux0++;
-    }
-    else { // Must be a dash which is 3 dots
-      for (unsigned int x = 0; x < 3; x++) {
-        SEGMENT.setPixelColor(SEGENV.aux0 + x, WHITE);
-      }
-      SEGENV.aux0 = SEGENV.aux0 + 3;
-    }
-    
-    // Draw 1 space between parts of a letter or number
-    SEGMENT.setPixelColor(SEGENV.aux0, BLACK);
-    SEGENV.aux0++;
-
-    i++;
-  }
-    
-  // Draw 3 spaces between two letters
-  for (unsigned int x = 0; x < 3; x++) {
-    SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
-  }
-  SEGENV.aux0 = SEGENV.aux0 + 3;
-}
-
-static uint16_t mode_morsecode(void) {
-  if (SEGLEN < 1) return mode_static();
-
-  uint32_t cycleTime = 40 + (255 - SEGMENT.speed);
-  uint32_t it = strip.now / cycleTime;
-  if (SEGENV.step != it) {
-    SEGENV.aux0++;
-    SEGENV.step = it;
-  }
-
-  // A-Z in Morse Code
-  const char *letters[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--",
-                     "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
-  // 0-9 in Morse Code
-  const char *numbers[] = {"-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."};
-  
-  // Initialize on first call
-  if (SEGENV.call == 0) SEGENV.aux0 = 0;
-
-  // Clear background if not in smear mode
-  bool smearMode = SEGMENT.check2;
-  if (!smearMode) SEGMENT.fill(BLACK);
-
-  char text[WLED_MAX_SEGNAME_LEN+1] = {'\0'};
-  size_t len = 0;
-  
-  if (SEGMENT.name) len = strlen(SEGMENT.name);
-  if (len == 0) { // fallback if empty segment name: display "I love WLED" in morse code
-    sprintf_P(text, PSTR("I Love WLED"));
-  } else {
-    sprintf_P(text, SEGMENT.name);
-  }
-
-  for (int i = 0; text[i] != '\0'; i++) {
-    text[i] = toupper(text[i]);
-  }
-
-  // For each character in the segment's string...
-  for (unsigned int z = 0; z < strlen(text); z++) {
-    // Check for letters and draw their morse code
-    if (text[z] >= 'A' && text[z] <= 'Z') {
-      draw_morse_code(letters[text[z] - 'A']);
-    }
-    // Check for numbers and draw their morse code
-    else if (text[z] >= '0' && text[z] <= '9') {
-      draw_morse_code(numbers[text[z] - '0']);
-    }
-    // Check for a space between words
-    else if (text[z] == ' ') {
-      // Put 7 spaces between each word in each message
-      for (unsigned int x = 0; x < 7; x++) {
-        SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
-      }
-      SEGENV.aux0 = SEGENV.aux0 + 7;
-    }
-    // Done with the last character in the string, so draw end of message code and then 7 spaces
-    if (z == strlen(text) - 1) {
-      draw_morse_code(".-.-.");  // end of message with the special 'AR' code
-      // Put 7 spaces at end
-      for (unsigned int x = 0; x < 7; x++) {
-        SEGMENT.setPixelColor(SEGENV.aux0 + x, BLACK);
-      }
-      SEGENV.aux0 = SEGENV.aux0 + 7;
-    }
-  }
-
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_PS_MORSECODE[] PROGMEM = "Morse Code@!,,,,,,Smear,;;!;1;";
-*/
-
-
-/*
-/  Moving Morse Code by Bob Loeffler
+/  Scrolling Morse Code by Bob Loeffler
 *    With help from code by automaticaddison.com and then a pass through claude.ai
 *    aux0 is the pattern offset for scrolling
 *    aux1 is the total pattern length
-// Build morse pattern into a buffer
-void build_morsecode_pattern(const char *morse_code, bool *pattern, int &index) {
-  unsigned int i = 0;
-  
-  // Build the dots and dashes into pattern array
-  while (morse_code[i] != '\0') {
-    // it's a dot which is 1 pixel
-    if (morse_code[i] == '.') {
-      pattern[index] = true;
-      index++;
-    }
-    else { // Must be a dash which is 3 pixels
-      for (unsigned int x = 0; x < 3; x++) {
-        pattern[index] = true;
-        index++;
-      }
-    }
-    
-    // 1 space between parts of a letter or number
-    pattern[index] = false;
-    index++;
-    i++;
-  }
-    
-  // 3 spaces between each letter or number
-  for (unsigned int x = 0; x < 3; x++) {
-    pattern[index] = false;
-    index++;
-  }
-}
-
-static uint16_t mode_morsecode(void) {
-  if (SEGLEN < 1) return mode_static();
-
-  // A-Z in Morse Code
-  static const char * letters[] PROGMEM = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--",
-                     "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
-  // 0-9 in Morse Code
-  static const char * numbers[] PROGMEM = {"-----", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----."};
-
-  // Update offset every second (1000ms)
-  uint32_t cycleTime = 50 + (255 - SEGMENT.speed)*3;
-  uint32_t it = strip.now / cycleTime;
-  if (SEGENV.step != it) {
-    SEGENV.aux0++; // Increment scroll offset
-    SEGENV.step = it;
-  }
-
-  // Get the text to display
-  char text[WLED_MAX_SEGNAME_LEN+1] = {'\0'};
-  size_t len = 0;
-  
-  if (SEGMENT.name) len = strlen(SEGMENT.name);
-  if (len == 0) { // fallback if empty segment name
-    sprintf_P(text, PSTR("I Love WLED"));
-  } else {
-    sprintf_P(text, SEGMENT.name);
-  }
-
-  for (int i = 0; text[i] != '\0'; i++) {
-    text[i] = toupper(text[i]);
-  }
-
-  // Build the complete morse pattern (estimate max size generously)
-  static bool morsecodePattern[1024]; // Static to avoid stack overflow
-  int patternLength = 0;
-
-  static char lastText[WLED_MAX_SEGNAME_LEN+1] = {'\0'};  // Track last text
-  bool textChanged = (strcmp(text, lastText) != 0);  // Check if the text has changed since the last frame
-
-  // Initialize on first call or rebuild pattern
-  if (SEGENV.call == 0 || textChanged) {
-    SEGENV.aux0 = 0;
-    strcpy(lastText, text); // Save current text
-
-    // Build complete morse code pattern
-    for (unsigned int z = 0; z < strlen(text); z++) {
-      // Check for letters
-      if (text[z] >= 'A' && text[z] <= 'Z') {
-        build_morsecode_pattern(letters[text[z] - 'A'], morsecodePattern, patternLength);
-      }
-      // Check for numbers
-      else if (text[z] >= '0' && text[z] <= '9') {
-        build_morsecode_pattern(numbers[text[z] - '0'], morsecodePattern, patternLength);
-      }
-      // Check for space between words
-      else if (text[z] == ' ') {
-        for (unsigned int x = 0; x < 7; x++) {
-          morsecodePattern[patternLength] = false;
-          patternLength++;
-        }
-      }
-      
-      // End of message
-      if (z == strlen(text) - 1) {
-        build_morsecode_pattern(".-.-.", morsecodePattern, patternLength);
-        for (unsigned int x = 0; x < 7; x++) {
-          morsecodePattern[patternLength] = false;
-          patternLength++;
-        }
-      }
-    }
-    SEGENV.aux1 = patternLength; // Store pattern length
-  }
-
-  patternLength = SEGENV.aux1;
-
-  // Clear background
-  SEGMENT.fill(BLACK);
-
-  // Draw the scrolling pattern
-  int offset = SEGENV.aux0 % patternLength;
-  for (int i = 0; i < SEGLEN; i++) {
-    int patternIndex = (offset + i) % patternLength;
-    if (morsecodePattern[patternIndex]) {
-      if (SEGMENT.check1)
-        SEGMENT.setPixelColor(i, SEGMENT.color_wheel(SEGENV.aux0 + i));
-      else
-        SEGMENT.setPixelColor(i, SEGMENT.color_from_palette(i, true, (strip.paletteBlend == 1 || strip.paletteBlend == 3), 0));
-    }
-  }
-
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_PS_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Colorful,,;;!;1;sx=128,o1=1";
-*/
-
-
-/*
-/  Moving Morse Code by Bob Loeffler
-*    With help from code by automaticaddison.com and then a pass through claude.ai
-*    aux0 is the pattern offset for scrolling
-*    aux1 is the total pattern length
+*    Morse Code rules:
+*     - there is one space between each part of a letter or number
+*     - there are 3 spaces between each letter or number
+      - there are 7 spaces between each word
 */
 
 // Build morse pattern into a buffer
 void build_morsecode_pattern(const char *morse_code, bool *pattern, int &index) {
-//  unsigned int i = 0;
   const char *c = morse_code;
   
   // Build the dots and dashes into pattern array
@@ -542,7 +331,7 @@ void build_morsecode_pattern(const char *morse_code, bool *pattern, int &index) 
       pattern[index++] = true;
     }
     
-    // 1 space between parts of a letter or number
+    // 1 space between parts of a letter/number
     pattern[index++] = false;
     c++;
   }
@@ -568,7 +357,7 @@ static uint16_t mode_morsecode(void) {
   
   if (SEGMENT.name) len = strlen(SEGMENT.name);
   if (len == 0) { // fallback if empty segment name
-    strcpy_P(text, PSTR("I Love WLED"));
+    strcpy_P(text, PSTR("I Love WLED!"));
   } else {
     strcpy(text, SEGMENT.name);
   }
@@ -581,14 +370,18 @@ static uint16_t mode_morsecode(void) {
   // Build the complete morse pattern (estimate max size generously)
   static bool morsecodePattern[1024]; // Static to avoid stack overflow
 
+  static bool lastCheck2 = false;
+  static bool lastCheck3 = false;
   static char lastText[WLED_MAX_SEGNAME_LEN+1] = {'\0'};  // Track last text
-  bool textChanged = (strcmp(text, lastText) != 0);  // Check if the text has changed since the last frame
+
+  bool settingsChanged = (SEGMENT.check2 != lastCheck2) || (SEGMENT.check3 != lastCheck3);  // check if any checkbox settings were changed since last frame
+  bool textChanged = (strcmp(text, lastText) != 0);   // check if the text has changed since the last frame
 
   // Initialize on first call or rebuild pattern
-  if (SEGENV.call == 0 || textChanged) {
-    SEGENV.aux0 = 0;
+  if (SEGENV.call == 0 || textChanged || settingsChanged) {
     strcpy(lastText, text); // Save current text
-
+    lastCheck2 = SEGMENT.check2;  // Save current state
+    lastCheck3 = SEGMENT.check3;  // Save current state
     int patternLength = 0;
 
     // Build complete morse code pattern
@@ -601,17 +394,41 @@ static uint16_t mode_morsecode(void) {
       else if (*c >= '0' && *c <= '9') {
         build_morsecode_pattern(numbers[*c - '0'], morsecodePattern, patternLength);
       }
-      // Check for space between words
+      // Check for a space between words
       else if (*c == ' ') {
-        for (int x = 0; x < 7; x++) {
+        for (int x = 0; x < 4; x++) {   // 7 spaces after the morse code pattern (3 after the last character and now 4 more)
           morsecodePattern[patternLength++] = false;
+        }
+      }
+      // Check for punctuation
+      else if (SEGMENT.check2) {
+        const char *punctuationCode = nullptr;
+        switch (*c) {
+          case '.': punctuationCode = ".-.-.-"; break;
+          case ',': punctuationCode = "--..--"; break;
+          case '?': punctuationCode = "..--.."; break;
+          case ':': punctuationCode = "---..."; break;
+          case '-': punctuationCode = "-....-"; break;
+          case '!': punctuationCode = "-.-.--"; break;
+          case '&': punctuationCode = ".-..."; break;
+          case '@': punctuationCode = ".--.-."; break;
+          case ')': punctuationCode = "-.--.-"; break;
+          case '(': punctuationCode = "-.--."; break;
+          case '/': punctuationCode = "-..-."; break;
+          case '\'': punctuationCode = ".----."; break;  // apostrophe character must be escaped with a \ character
+        }
+        if (punctuationCode) {
+          build_morsecode_pattern(punctuationCode, morsecodePattern, patternLength);
         }
       }
     }
 
-    // End of message
-    build_morsecode_pattern(".-.-.", morsecodePattern, patternLength);
-    for (int x = 0; x < 7; x++) {
+    // Build the End-of-message pattern
+    if (SEGMENT.check3) {
+      build_morsecode_pattern(".-.-.", morsecodePattern, patternLength);
+    }
+
+    for (int x = 0; x < 7; x++) {   // 10 spaces after the last pattern (3 after the last character and now 7 more)
       morsecodePattern[patternLength++] = false;
     }
 
@@ -640,13 +457,113 @@ static uint16_t mode_morsecode(void) {
       if (SEGMENT.check1)
         SEGMENT.setPixelColor(i, SEGMENT.color_wheel(SEGENV.aux0 + i));
       else
-        SEGMENT.setPixelColor(i, SEGMENT.color_from_palette(i, true, (strip.paletteBlend == 1 || strip.paletteBlend == 3), 0));
+        SEGMENT.setPixelColor(i, SEGMENT.color_from_palette(i, true, PALETTE_SOLID_WRAP, 0));
     }
   }
 
   return FRAMETIME;
 }
-static const char _data_FX_MODE_PS_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Colorful,,;;!;1;sx=128,o1=1";
+static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Color mode,Punctuation,EndOfMessage;;!;1;sx=128,o1=1,o2=1";
+
+
+// Spark type is used for Spinner in user_fx usermod
+// each needs 20 bytes
+typedef struct Spark {
+  float pos, posX;
+  float vel, velX;
+  uint16_t col;
+  uint8_t colIndex;
+} spark;
+
+
+/*
+Spinner effect
+Uses palettes for particle colors
+by Bob Loeffler (adapted from the Drip effect)
+*/
+uint16_t mode_spinner(void) {
+  if (SEGLEN <= 1) return mode_static();
+  //allocate segment data
+  unsigned strips = SEGMENT.nrOfVStrips();
+  const int maxNumDrops = 1;  // was 4
+  unsigned dataSize = sizeof(spark) * maxNumDrops;
+  if (!SEGENV.allocateData(dataSize * strips)) return mode_static(); //allocation failed
+  Spark* drops = reinterpret_cast<Spark*>(SEGENV.data);
+
+  SEGMENT.fill(SEGCOLOR(1));
+
+  struct virtualStrip {
+    static void runStrip(uint16_t stripNr, Spark* drops) {
+
+      unsigned numDrops = 1; // + (SEGMENT.intensity >> 6); // 255>>6 = 3
+
+      float gravity = -0.0005f - (SEGMENT.speed/50000.0f);
+      gravity *= max(1, (int)SEGLEN-1);
+      int sourcedrop = 12;
+
+      for (unsigned j = 0; j < numDrops; j++) {
+        if (SEGENV.call == 0) {   //if (drops[j].colIndex == 0) { //init
+          drops[j].pos = SEGLEN-1;    // start at end
+          drops[j].vel = 0;           // speed
+          drops[j].col = sourcedrop;  // brightness
+          drops[j].colIndex = 1;      // drop state (0 init, 1 forming, 2 falling, 5 bouncing)
+        }
+
+        SEGMENT.setPixelColor(indexToVStrip(SEGLEN-1, stripNr), color_blend(BLACK,SEGCOLOR(0), uint8_t(sourcedrop)));// water source
+        if (drops[j].colIndex==1) {
+          if (drops[j].col>255) drops[j].col=255;
+          SEGMENT.setPixelColor(indexToVStrip(uint16_t(drops[j].pos), stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col)));
+
+          drops[j].col += map(SEGMENT.speed, 0, 255, 1, 6); // swelling
+
+          if (hw_random8() < drops[j].col/10) {               // random drop
+            drops[j].colIndex=2;               //fall
+            drops[j].col=255;
+          }
+            
+           //drops[j].colIndex=2;               //fall
+        }
+        if (drops[j].colIndex > 1) {           // falling
+          if (drops[j].pos > 0) {              // fall until end of segment
+            drops[j].pos += drops[j].vel;
+            if (drops[j].pos < 0) drops[j].pos = 0;
+            drops[j].vel += gravity;           // gravity is negative
+
+            for (int i=1;i<7-drops[j].colIndex;i++) { // some minor math so we don't expand bouncing droplets
+              unsigned pos = constrain(unsigned(drops[j].pos) +i, 0, SEGLEN-1); //this is BAD, returns a pos >= SEGLEN occasionally
+              SEGMENT.setPixelColor(indexToVStrip(pos, stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col/i))); //spread pixel with fade while falling
+            }
+
+            if (drops[j].colIndex > 2) {       // during bounce, some water is on the floor
+              SEGMENT.setPixelColor(indexToVStrip(0, stripNr), color_blend(SEGCOLOR(0),BLACK,uint8_t(drops[j].col)));
+            }
+          } else {                             // we hit bottom
+            //drops[j].pos = SEGLEN-1;           // wrap to end of segment
+            if (drops[j].colIndex > 2) {       // already hit once, so back to forming
+              drops[j].colIndex = 0;
+              drops[j].col = sourcedrop;
+
+            } else {
+
+              if (drops[j].colIndex==2) {      // init bounce
+                drops[j].vel = -drops[j].vel/4;// reverse velocity with damping
+                drops[j].pos += drops[j].vel;
+              }
+              drops[j].col = sourcedrop*2;
+              drops[j].colIndex = 5;           // bouncing
+            }
+          }
+        }
+      }
+    }
+  };
+
+  for (unsigned stripNr=0; stripNr<strips; stripNr++)
+    virtualStrip::runStrip(stripNr, &drops[stripNr*maxNumDrops]);
+
+  return FRAMETIME;
+}
+static const char _data_FX_MODE_SPINNER[] PROGMEM = "Spinner@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1";
 
 
 /////////////////////
@@ -659,7 +576,9 @@ class UserFxUsermod : public Usermod {
   void setup() override {
     strip.addEffect(255, &mode_diffusionfire, _data_FX_MODE_DIFFUSIONFIRE);
     strip.addEffect(255, &mode_ants, _data_FX_MODE_ANTS);
-    strip.addEffect(255, &mode_morsecode, _data_FX_MODE_PS_MORSECODE);
+    strip.addEffect(255, &mode_morsecode, _data_FX_MODE_MORSECODE);
+    strip.addEffect(255, &mode_spinner, _data_FX_MODE_SPINNER);
+
     ////////////////////////////////////////
     //  add your effect function(s) here  //
     ////////////////////////////////////////

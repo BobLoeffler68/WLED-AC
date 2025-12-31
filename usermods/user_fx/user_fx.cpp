@@ -36,6 +36,7 @@ static uint16_t mode_static(void) {
   return strip.isOffRefreshRequired() ? FRAMETIME : 350;
 }
 
+
 /////////////////////////
 //  User FX functions  //
 /////////////////////////
@@ -307,13 +308,13 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 
 /*
 /  Scrolling Morse Code by Bob Loeffler
-*    With help from code by automaticaddison.com and then a pass through claude.ai
-*    aux0 is the pattern offset for scrolling
-*    aux1 is the total pattern length
-*    Morse Code rules:
-*     - there is one space between each part of a letter or number
-*     - there are 3 spaces between each letter or number
-*     - there are 7 spaces between each word
+*   With help from code by automaticaddison.com and then a pass through claude.ai
+*   aux0 is the pattern offset for scrolling
+*   aux1 is the total pattern length
+*   Morse Code rules:
+*    - there is one space between each part of a letter or number
+*    - there are 3 spaces between each letter or number
+*    - there are 7 spaces between each word
 */
 
 // Build morse pattern into a buffer
@@ -468,10 +469,10 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Colo
 
 
 /*
-/ Lava Lamp 2D effect
-*  Uses particles to simulate rising blobs of "lava"
-*  Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
-*  Created by Bob Loeffler using claude.ai
+/  Lava Lamp 2D effect
+*   Uses particles to simulate rising blobs of "lava"
+*   Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
+*   Created by Bob Loeffler using claude.ai
 */
 
 #define MAX_LAVA_PARTICLES 50
@@ -714,9 +715,9 @@ typedef struct Spark {
 
 
 /*
-/ Spinner effect
-* Uses palettes for particle colors
-* by Bob Loeffler (adapted from the Drip effect)
+/  Spinner effect
+*   Uses palettes for particle colors
+*   by Bob Loeffler (adapted from the Drip effect)
 */
 
 uint16_t mode_spinner(void) {

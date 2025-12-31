@@ -467,112 +467,13 @@ static uint16_t mode_morsecode(void) {
 static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Color mode,Punctuation,EndOfMessage;;!;1;sx=128,o1=1,o2=1";
 
 
-// Spark type is used for Spinner in user_fx usermod
-// each needs 20 bytes
-typedef struct Spark {
-  float pos, posX;
-  float vel, velX;
-  uint16_t col;
-  uint8_t colIndex;
-} spark;
-
-
 /*
-Spinner effect
-Uses palettes for particle colors
-by Bob Loeffler (adapted from the Drip effect)
+/ Lava Lamp 2D effect
+*  Uses particles to simulate rising blobs of "lava"
+*  Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
+*  Created by Bob Loeffler using claude.ai
 */
-uint16_t mode_spinner(void) {
-  if (SEGLEN <= 1) return mode_static();
-  //allocate segment data
-  unsigned strips = SEGMENT.nrOfVStrips();
-  const int maxNumDrops = 1;  // was 4
-  unsigned dataSize = sizeof(spark) * maxNumDrops;
-  if (!SEGENV.allocateData(dataSize * strips)) return mode_static(); //allocation failed
-  Spark* drops = reinterpret_cast<Spark*>(SEGENV.data);
 
-  SEGMENT.fill(SEGCOLOR(1));
-
-  struct virtualStrip {
-    static void runStrip(uint16_t stripNr, Spark* drops) {
-
-      unsigned numDrops = 1; // + (SEGMENT.intensity >> 6); // 255>>6 = 3
-
-      float gravity = -0.0005f - (SEGMENT.speed/50000.0f);
-      gravity *= max(1, (int)SEGLEN-1);
-      int sourcedrop = 12;
-
-      for (unsigned j = 0; j < numDrops; j++) {
-        if (SEGENV.call == 0) {   //if (drops[j].colIndex == 0) { //init
-          drops[j].pos = SEGLEN-1;    // start at end
-          drops[j].vel = 0;           // speed
-          drops[j].col = sourcedrop;  // brightness
-          drops[j].colIndex = 1;      // drop state (0 init, 1 forming, 2 falling, 5 bouncing)
-        }
-
-        SEGMENT.setPixelColor(indexToVStrip(SEGLEN-1, stripNr), color_blend(BLACK,SEGCOLOR(0), uint8_t(sourcedrop)));// water source
-        if (drops[j].colIndex==1) {
-          if (drops[j].col>255) drops[j].col=255;
-          SEGMENT.setPixelColor(indexToVStrip(uint16_t(drops[j].pos), stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col)));
-
-          drops[j].col += map(SEGMENT.speed, 0, 255, 1, 6); // swelling
-
-          if (hw_random8() < drops[j].col/10) {               // random drop
-            drops[j].colIndex=2;               //fall
-            drops[j].col=255;
-          }
-            
-           //drops[j].colIndex=2;               //fall
-        }
-        if (drops[j].colIndex > 1) {           // falling
-          if (drops[j].pos > 0) {              // fall until end of segment
-            drops[j].pos += drops[j].vel;
-            if (drops[j].pos < 0) drops[j].pos = 0;
-            drops[j].vel += gravity;           // gravity is negative
-
-            for (int i=1;i<7-drops[j].colIndex;i++) { // some minor math so we don't expand bouncing droplets
-              unsigned pos = constrain(unsigned(drops[j].pos) +i, 0, SEGLEN-1); //this is BAD, returns a pos >= SEGLEN occasionally
-              SEGMENT.setPixelColor(indexToVStrip(pos, stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col/i))); //spread pixel with fade while falling
-            }
-
-            if (drops[j].colIndex > 2) {       // during bounce, some water is on the floor
-              SEGMENT.setPixelColor(indexToVStrip(0, stripNr), color_blend(SEGCOLOR(0),BLACK,uint8_t(drops[j].col)));
-            }
-          } else {                             // we hit bottom
-            //drops[j].pos = SEGLEN-1;           // wrap to end of segment
-            if (drops[j].colIndex > 2) {       // already hit once, so back to forming
-              drops[j].colIndex = 0;
-              drops[j].col = sourcedrop;
-
-            } else {
-
-              if (drops[j].colIndex==2) {      // init bounce
-                drops[j].vel = -drops[j].vel/4;// reverse velocity with damping
-                drops[j].pos += drops[j].vel;
-              }
-              drops[j].col = sourcedrop*2;
-              drops[j].colIndex = 5;           // bouncing
-            }
-          }
-        }
-      }
-    }
-  };
-
-  for (unsigned stripNr=0; stripNr<strips; stripNr++)
-    virtualStrip::runStrip(stripNr, &drops[stripNr*maxNumDrops]);
-
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_SPINNER[] PROGMEM = "Spinner@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1";
-
-
-/*
- * Lava Lamp 2D effect
- *  Uses particles to simulate rising blobs of "lava"
- *  Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
- *  Created by Bob Loeffler using claude.ai
- */
 #define MAX_LAVA_PARTICLES 50
 
 typedef struct LavaParticle {
@@ -632,7 +533,7 @@ uint16_t mode_2D_lavalamp(void) {
 
   // Spawn new particles at the bottom near the center
   for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
-    if (!lavaParticles[i].active && random8() < 32) { // Always spawn when slot available
+    if (!lavaParticles[i].active && hw_random8() < 32) { // Always spawn when slot available
       // Spawn in the middle 60% of the width
       float centerStart = cols * 0.20f;
       float centerWidth = cols * 0.60f;
@@ -651,7 +552,7 @@ uint16_t mode_2D_lavalamp(void) {
       float sizeRange = (maxSize - minSize) * (sizeControl / 255.0f);
       lavaParticles[i].size = minSize + random16((int)(sizeRange * 10)) / 10.0f;
 
-      lavaParticles[i].hue = SEGMENT.check1 ? random8() : random16(256);
+      lavaParticles[i].hue = SEGMENT.check1 ? hw_random8() : random16(256);
       lavaParticles[i].life = 255;
       lavaParticles[i].active = true;
       break;
@@ -802,6 +703,107 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 #undef MAX_LAVA_PARTICLES
 
 
+// Spark type is used for Spinner in user_fx usermod
+// each needs 20 bytes
+typedef struct Spark {
+  float pos, posX;
+  float vel, velX;
+  uint16_t col;
+  uint8_t colIndex;
+} spark;
+
+
+/*
+/ Spinner effect
+* Uses palettes for particle colors
+* by Bob Loeffler (adapted from the Drip effect)
+*/
+
+uint16_t mode_spinner(void) {
+  if (SEGLEN <= 1) return mode_static();
+  //allocate segment data
+  unsigned strips = SEGMENT.nrOfVStrips();
+  const int maxNumDrops = 1;  // was 4
+  unsigned dataSize = sizeof(spark) * maxNumDrops;
+  if (!SEGENV.allocateData(dataSize * strips)) return mode_static(); //allocation failed
+  Spark* drops = reinterpret_cast<Spark*>(SEGENV.data);
+
+  SEGMENT.fill(SEGCOLOR(1));
+
+  struct virtualStrip {
+    static void runStrip(uint16_t stripNr, Spark* drops) {
+
+      unsigned numDrops = 1; // + (SEGMENT.intensity >> 6); // 255>>6 = 3
+
+      float gravity = -0.0005f - (SEGMENT.speed/50000.0f);
+      gravity *= max(1, (int)SEGLEN-1);
+      int sourcedrop = 12;
+
+      for (unsigned j = 0; j < numDrops; j++) {
+        if (SEGENV.call == 0) {   //if (drops[j].colIndex == 0) { //init
+          drops[j].pos = SEGLEN-1;    // start at end
+          drops[j].vel = 0;           // speed
+          drops[j].col = sourcedrop;  // brightness
+          drops[j].colIndex = 1;      // drop state (0 init, 1 forming, 2 falling, 5 bouncing)
+        }
+
+        SEGMENT.setPixelColor(indexToVStrip(SEGLEN-1, stripNr), color_blend(BLACK,SEGCOLOR(0), uint8_t(sourcedrop)));// water source
+        if (drops[j].colIndex==1) {
+          if (drops[j].col>255) drops[j].col=255;
+          SEGMENT.setPixelColor(indexToVStrip(uint16_t(drops[j].pos), stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col)));
+
+          drops[j].col += map(SEGMENT.speed, 0, 255, 1, 6); // swelling
+
+          if (hw_random8() < drops[j].col/10) {               // random drop
+            drops[j].colIndex=2;               //fall
+            drops[j].col=255;
+          }
+            
+           //drops[j].colIndex=2;               //fall
+        }
+        if (drops[j].colIndex > 1) {           // falling
+          if (drops[j].pos > 0) {              // fall until end of segment
+            drops[j].pos += drops[j].vel;
+            if (drops[j].pos < 0) drops[j].pos = 0;
+            drops[j].vel += gravity;           // gravity is negative
+
+            for (int i=1;i<7-drops[j].colIndex;i++) { // some minor math so we don't expand bouncing droplets
+              unsigned pos = constrain(unsigned(drops[j].pos) +i, 0, SEGLEN-1); //this is BAD, returns a pos >= SEGLEN occasionally
+              SEGMENT.setPixelColor(indexToVStrip(pos, stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col/i))); //spread pixel with fade while falling
+            }
+
+            if (drops[j].colIndex > 2) {       // during bounce, some water is on the floor
+              SEGMENT.setPixelColor(indexToVStrip(0, stripNr), color_blend(SEGCOLOR(0),BLACK,uint8_t(drops[j].col)));
+            }
+          } else {                             // we hit bottom
+            //drops[j].pos = SEGLEN-1;           // wrap to end of segment
+            if (drops[j].colIndex > 2) {       // already hit once, so back to forming
+              drops[j].colIndex = 0;
+              drops[j].col = sourcedrop;
+
+            } else {
+
+              if (drops[j].colIndex==2) {      // init bounce
+                drops[j].vel = -drops[j].vel/4;// reverse velocity with damping
+                drops[j].pos += drops[j].vel;
+              }
+              drops[j].col = sourcedrop*2;
+              drops[j].colIndex = 5;           // bouncing
+            }
+          }
+        }
+      }
+    }
+  };
+
+  for (unsigned stripNr=0; stripNr<strips; stripNr++)
+    virtualStrip::runStrip(stripNr, &drops[stripNr*maxNumDrops]);
+
+  return FRAMETIME;
+}
+static const char _data_FX_MODE_SPINNER[] PROGMEM = "Spinner@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1";
+
+
 
 /////////////////////
 //  UserMod Class  //
@@ -814,9 +816,9 @@ class UserFxUsermod : public Usermod {
     strip.addEffect(255, &mode_diffusionfire, _data_FX_MODE_DIFFUSIONFIRE);
     strip.addEffect(255, &mode_ants, _data_FX_MODE_ANTS);
     strip.addEffect(255, &mode_morsecode, _data_FX_MODE_MORSECODE);
-    strip.addEffect(255, &mode_spinner, _data_FX_MODE_SPINNER);
     strip.addEffect(255, &mode_2D_lavalamp, _data_FX_MODE_2D_LAVALAMP);
-    
+    strip.addEffect(255, &mode_spinner, _data_FX_MODE_SPINNER);
+
     ////////////////////////////////////////
     //  add your effect function(s) here  //
     ////////////////////////////////////////

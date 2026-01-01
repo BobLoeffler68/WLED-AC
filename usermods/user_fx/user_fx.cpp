@@ -200,7 +200,7 @@ static uint16_t mode_ants(void) {
   // Extract configuration from segment settings
   unsigned numAnts = min(1 + (SEGLEN * SEGMENT.intensity >> 12), MAX_ANTS);
   bool gatherFood = SEGMENT.check1;
-  bool overlayMode = SEGMENT.check2;
+  bool SmearMode = SEGMENT.check2;
   bool passBy = SEGMENT.check3 || gatherFood;  // global no‑collision when gathering food is enabled
   unsigned antSize = map(SEGMENT.custom1, 0, 255, 1, 20) + (gatherFood ? 1 : 0);
 
@@ -225,12 +225,12 @@ static uint16_t mode_ants(void) {
   // Calculate time conversion factor based on speed slider
   float timeConversionFactor = float(scale8(8, 255 - SEGMENT.speed) + 1) * 20000.0f;
 
-  // Clear background if not in overlay mode
-  if (!overlayMode) SEGMENT.fill(backgroundColor);
+  // Clear background if not in Smear mode
+  if (!SmearMode) SEGMENT.fill(backgroundColor);
 
   // Update and render each ant
   for (int i = 0; i < numAnts; i++) {
-    float timeSinceLastUpdate = float(strip.now - ants[i].lastBumpUpdate) / timeConversionFactor;
+    float timeSinceLastUpdate = float(int(strip.now - ants[i].lastBumpUpdate)) / timeConversionFactor;
     float newPosition = ants[i].position + ants[i].velocity * timeSinceLastUpdate;
 
     // Reset ants that wandered too far off-track (e.g., after intensity change)
@@ -256,7 +256,7 @@ static uint16_t mode_ants(void) {
         float collisionTime = (timeConversionFactor * (ants[i].position - ants[j].position) + ants[i].velocity * timeOffset) / (ants[j].velocity - ants[i].velocity);
 
         // Check if collision occurred in valid time window
-        float timeSinceJ = float(strip.now - ants[j].lastBumpUpdate);
+        float timeSinceJ = float(int(strip.now - ants[j].lastBumpUpdate));
         if (collisionTime > MIN_COLLISION_TIME_MS && collisionTime < timeSinceJ) {
           // Update positions to collision point
           float adjustedTime = (collisionTime + float(int(ants[j].lastBumpUpdate - ants[i].lastBumpUpdate))) / timeConversionFactor;
@@ -276,7 +276,7 @@ static uint16_t mode_ants(void) {
           }
 
           // Recalculate position after collision
-          newPosition = ants[i].position + ants[i].velocity * (strip.now - ants[i].lastBumpUpdate) / timeConversionFactor;
+          newPosition = ants[i].position + ants[i].velocity * float(int(strip.now - ants[i].lastBumpUpdate)) / timeConversionFactor;
         }
       }
     }
@@ -303,7 +303,7 @@ static uint16_t mode_ants(void) {
   SEGMENT.blur(SEGMENT.custom2>>1);
   return FRAMETIME;
 }
-static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant size,Blur,,Gathering food,Overlay,Pass by;!,!,!;!;1;sx=192,ix=255,c1=32,c2=0,o1=1,o3=1";
+static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant size,Blur,,Gathering food,Smear,Pass by;!,!,!;!;1;sx=192,ix=255,c1=32,c2=0,o1=1,o3=1";
 
 
 /*

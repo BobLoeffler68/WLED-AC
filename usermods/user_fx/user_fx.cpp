@@ -308,9 +308,14 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 
 /*
 /  Scrolling Morse Code by Bob Loeffler
-*   With help from code by automaticaddison.com and then a pass through claude.ai
+*   Adapted from code by automaticaddison.com and then optimized by claude.ai
 *   aux0 is the pattern offset for scrolling
 *   aux1 is the total pattern length
+*   The sx slider selects the scrolling speed
+*   Checkbox1 selects the color mode
+*   Checkbox2 displays punctuation or not
+*   Checkbox3 displays the End-of-message code or not
+*   We get the text from the SEGMENT.name and convert it to morse code
 *   Morse Code rules:
 *    - there is one space between each part of a letter or number
 *    - there are 3 spaces between each letter or number
@@ -323,9 +328,9 @@ void build_morsecode_pattern(const char *morse_code, bool *pattern, int &index, 
   
   // Build the dots and dashes into pattern array
   while (*c != '\0') {
-    if (index >= maxSize - 4) return; // Reserve space for spacing
     // it's a dot which is 1 pixel
     if (*c == '.') {
+      if (index >= maxSize - 1) return; // Reserve space for spacing
       pattern[index++] = true;
     }
     else { // Must be a dash which is 3 pixels
@@ -336,14 +341,17 @@ void build_morsecode_pattern(const char *morse_code, bool *pattern, int &index, 
     }
     
     // 1 space between parts of a letter/number
+    if (index >= maxSize) return;
     pattern[index++] = false;
     c++;
   }
     
   // 3 spaces between two letters
-  if (index >= maxSize - 3) return;
+  if (index >= maxSize - 2) return;
   pattern[index++] = false;
+  if (index >= maxSize - 1) return;
   pattern[index++] = false;
+  if (index >= maxSize) return;
   pattern[index++] = false;
 }
 
@@ -393,6 +401,7 @@ static uint16_t mode_morsecode(void) {
 
     // Build complete morse code pattern
     for (char *c = text; *c; c++) {
+      if (patternLength >= MORSECODE_MAX_PATTERN_SIZE - 10) break; // Reserve space for trailing pattern
       // Check for letters
       if (*c >= 'A' && *c <= 'Z') {
         build_morsecode_pattern(letters[*c - 'A'], morsecodePattern, patternLength, MORSECODE_MAX_PATTERN_SIZE);
@@ -404,6 +413,7 @@ static uint16_t mode_morsecode(void) {
       // Check for a space between words
       else if (*c == ' ') {
         for (int x = 0; x < 4; x++) {   // 7 spaces after the morse code pattern (3 after the last character and now 4 more)
+          if (patternLength >= MORSECODE_MAX_PATTERN_SIZE) break;
           morsecodePattern[patternLength++] = false;
         }
       }
@@ -436,6 +446,7 @@ static uint16_t mode_morsecode(void) {
     }
 
     for (int x = 0; x < 7; x++) {   // 10 spaces after the last pattern (3 after the last character and now 7 more)
+      if (patternLength >= MORSECODE_MAX_PATTERN_SIZE) break;
       morsecodePattern[patternLength++] = false;
     }
 

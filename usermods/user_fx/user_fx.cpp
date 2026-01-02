@@ -594,6 +594,7 @@ uint16_t mode_2D_lavalamp(void) {
   
   // Update and draw particles
   int activeCount = 0;
+  unsigned long currentMillis = millis();
   for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
     if (!lavaParticles[i].active) continue;
     activeCount++;
@@ -637,7 +638,7 @@ uint16_t mode_2D_lavalamp(void) {
     }
 
     // Horizontal oscillation (makes it more organic)
-    p->vx += sin((millis() / 1000.0f + i) * 0.5f) * 0.002f; // Reduced oscillation
+    p->vx += sin((currentMillis / 1000.0f + i) * 0.5f) * 0.002f; // Reduced oscillation
     p->vx *= 0.92f; // Stronger damping for less drift
     
     // Bounce off sides (don't affect vertical velocity)

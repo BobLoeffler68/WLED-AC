@@ -801,19 +801,9 @@ uint16_t mode_spinning_wheel(void) {
     state[CUR_POS_IDX] = 0; // position
     if (SEGMENT.check2) {  // if random speed is selected
       state[VELOCITY_IDX] = random16(200, 900) * 655;
-      Serial.print("Random velocity (speed): ");
-      Serial.print(state[VELOCITY_IDX]);
-      Serial.print(" (speed=");
-      Serial.print(SEGMENT.speed);
-      Serial.println(")");
     } else {
       uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
       state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
-      Serial.print("Mapped velocity (speed): ");
-      Serial.print(speed);
-      Serial.print(" (speed=");
-      Serial.print(SEGMENT.speed);
-      Serial.println(")");
     }
     state[PHASE_IDX] = 0; // phase
     state[STOP_TIME_IDX] = 0; // stop time
@@ -823,20 +813,12 @@ uint16_t mode_spinning_wheel(void) {
     if (SEGMENT.check3) {  // if random slowdown is selected
       uint16_t slowdown_delay = random16(2000, 6000);
       state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-      Serial.print("Random slowdown delay: ");
-      Serial.println(slowdown_delay);
     } else {
       uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
       uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
       state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-      Serial.print("Mapped slowdown delay: ");
-      Serial.print(slowdown_delay);
-      Serial.print(" (intensity=");
-      Serial.print(SEGMENT.intensity);
-      Serial.println(")");
     }
     phase = 0;
-    Serial.println("=== START ===");
   }
 
   uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
@@ -847,19 +829,9 @@ uint16_t mode_spinning_wheel(void) {
     state[CUR_POS_IDX] = 0;
     if (SEGMENT.check2) {  // if random speed is selected
       state[VELOCITY_IDX] = random16(200, 900) * 655;
-      Serial.print("Random velocity (speed): ");
-      Serial.print(state[VELOCITY_IDX]);
-      Serial.print(" (speed=");
-      Serial.print(SEGMENT.speed);
-      Serial.println(")");
     } else {
       uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
       state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
-      Serial.print("Mapped velocity (speed): ");
-      Serial.print(speed);
-      Serial.print(" (speed=");
-      Serial.print(SEGMENT.speed);
-      Serial.println(")");
     }
     state[PHASE_IDX] = 0;
     state[STOP_TIME_IDX] = 0;
@@ -869,20 +841,12 @@ uint16_t mode_spinning_wheel(void) {
     if (SEGMENT.check3) {  // if random slowdown is selected
       uint16_t slowdown_delay = random16(2000, 6000);
       state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-      Serial.print("Random slowdown delay: ");
-      Serial.println(slowdown_delay);
     } else {
       uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
       uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
       state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-      Serial.print("Mapped slowdown delay: ");
-      Serial.print(slowdown_delay);
-      Serial.print(" (intensity=");
-      Serial.print(SEGMENT.intensity);
-      Serial.println(")");
     }
     phase = 0;
-    Serial.println("=== RESTARTING ===");
   }
   
   uint32_t pos_fixed = state[CUR_POS_IDX];
@@ -894,7 +858,6 @@ uint16_t mode_spinning_wheel(void) {
     if (now >= state[SLOWDOWN_TIME_IDX]) {
       phase = 1;
       state[PHASE_IDX] = 1;
-      Serial.println("Phase 0 -> 1 (starting slowdown)");
     }
   } else if (phase == 1) {
     // Slowing phase - apply deceleration
@@ -920,8 +883,6 @@ uint16_t mode_spinning_wheel(void) {
       uint16_t stop_pos = (pos_fixed >> 16) % SEGLEN;
       SEGENV.step = stop_pos;
       state[WOBBLE_TIME_IDX] = now; // Start wobble timing
-      Serial.print("Phase 1 -> 2 (wobble starting) at LED: ");
-      Serial.println(stop_pos);
     }
   } else if (phase == 2) {
     // Wobble phase - move around the saved stop position
@@ -935,23 +896,17 @@ uint16_t mode_spinning_wheel(void) {
       state[CUR_POS_IDX] = pos_fixed;
       state[WOBBLE_STEP_IDX] = 1;
       state[WOBBLE_TIME_IDX] = now;
-      Serial.print("Wobble: moved back to LED ");
-      Serial.println(back_pos);
     } else if (wobble_step == 1 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
       // Move forward back to stop position
       pos_fixed = ((uint32_t)stop_pos) << 16;
       state[CUR_POS_IDX] = pos_fixed;
       state[WOBBLE_STEP_IDX] = 2;
       state[WOBBLE_TIME_IDX] = now;
-      Serial.print("Wobble: returned to LED ");
-      Serial.println(stop_pos);
     } else if (wobble_step == 2 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
       // Wobble complete, enter stopped phase
       phase = 3;
       state[PHASE_IDX] = 3;
       state[STOP_TIME_IDX] = now;
-      Serial.print("Phase 2 -> 3 (fully stopped) at time: ");
-      Serial.println(now);
     }
   }
   
@@ -963,10 +918,6 @@ uint16_t mode_spinning_wheel(void) {
   
   // Get integer position
   uint16_t pos = (pos_fixed >> 16) % SEGLEN;
-  //if (phase == 0) {
-  //  Serial.print("Position during spinning: ");
-  //  Serial.println(pos);
-  //}
 
   // Get color
   uint32_t scale = (255 << 16) / SEGLEN;
@@ -979,11 +930,7 @@ uint16_t mode_spinning_wheel(void) {
   }
 
   // Light up current position
-  //SEGMENT.setPixelColor(pos, color);
-  if (phase==0) SEGMENT.setPixelColor(pos, SEGCOLOR(0));
-  else if (phase==1) SEGMENT.setPixelColor(pos, BLUE);
-  else if (phase==2) SEGMENT.setPixelColor(pos, GREEN);
-  else if (phase==3) SEGMENT.setPixelColor(pos, RED);
+  SEGMENT.setPixelColor(pos, color);
 
   return FRAMETIME;
 }

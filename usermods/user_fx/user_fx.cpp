@@ -779,7 +779,7 @@ uint16_t mode_spinning_wheel(void) {
   // state[3] = stop time (when phase 3 was entered)
   // state[4] = wobble step (0=at stop pos, 1=moved back, 2=returned to stop)
   // state[5] = slowdown start time (when to transition from phase 0 to phase 1)
-  // state[6] = wobble timing (for 100ms / 300ms / 300ms delays)
+  // state[6] = wobble timing (for 200ms / 400ms / 300ms delays)
 
   // state[] index values for easier readability
   constexpr unsigned CUR_POS_IDX       = 0;
@@ -866,14 +866,14 @@ uint16_t mode_spinning_wheel(void) {
     uint32_t wobble_step = state[WOBBLE_STEP_IDX];
     uint16_t stop_pos = SEGENV.step;
     
-    if (wobble_step == 0 && (now - state[WOBBLE_TIME_IDX] >= 100)) {
+    if (wobble_step == 0 && (now - state[WOBBLE_TIME_IDX] >= 200)) {
       // Move back one LED from stop position
       uint16_t back_pos = (stop_pos == 0) ? SEGLEN - 1 : stop_pos - 1;
       pos_fixed = ((uint32_t)back_pos) << 16;
       state[CUR_POS_IDX] = pos_fixed;
       state[WOBBLE_STEP_IDX] = 1;
       state[WOBBLE_TIME_IDX] = now;
-    } else if (wobble_step == 1 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
+    } else if (wobble_step == 1 && (now - state[WOBBLE_TIME_IDX] >= 400)) {
       // Move forward back to stop position
       pos_fixed = ((uint32_t)stop_pos) << 16;
       state[CUR_POS_IDX] = pos_fixed;

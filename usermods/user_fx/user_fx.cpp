@@ -173,7 +173,7 @@ static void handleBoundary(Ant& ant, float& position, bool gatherFood, bool atSt
 // Helper function to calculate ant color
 static uint32_t getAntColor(int antIndex, int numAnts, bool usePalette) {
   if (usePalette)
-    return SEGMENT.color_from_palette(antIndex * 255 / numAnts, false, (strip.paletteBlend == 1 || strip.paletteBlend == 3), 255);
+    return SEGMENT.color_from_palette(antIndex * 255 / numAnts, false, PALETTE_SOLID_WRAP, 255);
   // Alternate between two colors for default palette
   return (antIndex % 3 == 1) ? SEGCOLOR(0) : SEGCOLOR(2);
 }
@@ -322,7 +322,7 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 *
 *   Morse Code rules:
 *    - a dot is 1 pixel/LED; a dash is 3 pixels/LEDs
-*    - there is 1 space between each part (dot or dash) of a letter/number/punctuation
+*    - there is 1 space between each dot or dash that make up a letter/number/punctuation
 *    - there are 3 spaces between each letter/number/punctuation
 *    - there are 7 spaces between each word
 */
@@ -757,104 +757,237 @@ uint16_t mode_2D_lavalamp(void) {
 static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of blobs,Blob size,,,Color mode,Attract;;!;2;ix=64,o2=1,pal=47";
 
 
-// Spark type is used for Spinner in user_fx usermod
-// each needs 20 bytes
-typedef struct Spark {
-  float pos, posX;
-  float vel, velX;
-  uint16_t col;
-  uint8_t colIndex;
-} spark;
-
 /*
-/  Spinner effect
-*   Uses palettes for particle colors
-*   by Bob Loeffler (adapted from the Drip effect)
-*/
+ * Spinning Wheel effect - LED animates around 1D strip, slows down and stops at random position
+ *  Created by Bob Loeffler and claude.ai
+ *  First slider (Spin speed) is for the speed of the moving/spinning LED
+ *  Second slider (Spin time) is for how long before the slowdown phase starts
+ *  Third slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin
+ *  The first checkbox sets the color mode (color wheel or palette)
+ *  The second checkbox sets the spin speed to a random number range
+ *  The third checkbox sets the spin time to a random number range
+ */
 
-uint16_t mode_spinner(void) {
-  if (SEGLEN <= 1) return mode_static();
-  //allocate segment data
-  unsigned strips = SEGMENT.nrOfVStrips();
-  const int maxNumDrops = 1;  // was 4
-  unsigned dataSize = sizeof(spark) * maxNumDrops;
-  if (!SEGENV.allocateData(dataSize * strips)) return mode_static(); //allocation failed
-  Spark* drops = reinterpret_cast<Spark*>(SEGENV.data);
+uint16_t mode_spinning_wheel(void) {
+  if (SEGLEN < 1) return mode_static();
+  unsigned dataSize = 28; // 7 state variables × 4 bytes each
+  if (!SEGENV.allocateData(dataSize)) return mode_static();
+  uint32_t* state = (uint32_t*)SEGENV.data;
+  // state[0] = current position (fixed point: upper 16 bits = position, lower 16 bits = fraction)
+  // state[1] = velocity (fixed point: pixels per frame * 65536)
+  // state[2] = phase (0=fast spin, 1=slowing, 2=wobble, 3=stopped)
+  // state[3] = stop time (when phase 3 was entered)
+  // state[4] = wobble step (0=at stop pos, 1=moved back, 2=returned to stop)
+  // state[5] = slowdown start time (when to transition from phase 0 to phase 1)
+  // state[6] = wobble timing (for 100ms / 300ms / 300ms delays)
+
+  // state[] index values for easier readability
+  constexpr unsigned CUR_POS_IDX       = 0;
+  constexpr unsigned VELOCITY_IDX      = 1;
+  constexpr unsigned PHASE_IDX         = 2;
+  constexpr unsigned STOP_TIME_IDX     = 3;
+  constexpr unsigned WOBBLE_STEP_IDX   = 4;
+  constexpr unsigned SLOWDOWN_TIME_IDX = 5;
+  constexpr unsigned WOBBLE_TIME_IDX   = 6;
 
   SEGMENT.fill(SEGCOLOR(1));
 
-  struct virtualStrip {
-    static void runStrip(uint16_t stripNr, Spark* drops) {
-
-      unsigned numDrops = 1; // + (SEGMENT.intensity >> 6); // 255>>6 = 3
-
-      float gravity = -0.0005f - (SEGMENT.speed/50000.0f);
-      gravity *= max(1, (int)SEGLEN-1);
-      int sourcedrop = 12;
-
-      for (unsigned j = 0; j < numDrops; j++) {
-        if (SEGENV.call == 0) {   //if (drops[j].colIndex == 0) { //init
-          drops[j].pos = SEGLEN-1;    // start at end
-          drops[j].vel = 0;           // speed
-          drops[j].col = sourcedrop;  // brightness
-          drops[j].colIndex = 1;      // drop state (0 init, 1 forming, 2 falling, 5 bouncing)
-        }
-
-        SEGMENT.setPixelColor(indexToVStrip(SEGLEN-1, stripNr), color_blend(BLACK,SEGCOLOR(0), uint8_t(sourcedrop)));// water source
-        if (drops[j].colIndex==1) {
-          if (drops[j].col>255) drops[j].col=255;
-          SEGMENT.setPixelColor(indexToVStrip(uint16_t(drops[j].pos), stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col)));
-
-          drops[j].col += map(SEGMENT.speed, 0, 255, 1, 6); // swelling
-
-          if (hw_random8() < drops[j].col/10) {               // random drop
-            drops[j].colIndex=2;               //fall
-            drops[j].col=255;
-          }
-            
-           //drops[j].colIndex=2;               //fall
-        }
-        if (drops[j].colIndex > 1) {           // falling
-          if (drops[j].pos > 0) {              // fall until end of segment
-            drops[j].pos += drops[j].vel;
-            if (drops[j].pos < 0) drops[j].pos = 0;
-            drops[j].vel += gravity;           // gravity is negative
-
-            for (int i=1;i<7-drops[j].colIndex;i++) { // some minor math so we don't expand bouncing droplets
-              unsigned pos = constrain(unsigned(drops[j].pos) +i, 0, SEGLEN-1); //this is BAD, returns a pos >= SEGLEN occasionally
-              SEGMENT.setPixelColor(indexToVStrip(pos, stripNr), color_blend(BLACK,SEGCOLOR(0),uint8_t(drops[j].col/i))); //spread pixel with fade while falling
-            }
-
-            if (drops[j].colIndex > 2) {       // during bounce, some water is on the floor
-              SEGMENT.setPixelColor(indexToVStrip(0, stripNr), color_blend(SEGCOLOR(0),BLACK,uint8_t(drops[j].col)));
-            }
-          } else {                             // we hit bottom
-            //drops[j].pos = SEGLEN-1;           // wrap to end of segment
-            if (drops[j].colIndex > 2) {       // already hit once, so back to forming
-              drops[j].colIndex = 0;
-              drops[j].col = sourcedrop;
-
-            } else {
-
-              if (drops[j].colIndex==2) {      // init bounce
-                drops[j].vel = -drops[j].vel/4;// reverse velocity with damping
-                drops[j].pos += drops[j].vel;
-              }
-              drops[j].col = sourcedrop*2;
-              drops[j].colIndex = 5;           // bouncing
-            }
-          }
-        }
-      }
+  uint8_t phase = state[PHASE_IDX];
+  uint32_t now = strip.now;
+  
+  if (SEGENV.call == 0) {
+    // First initialization only
+    random16_set_seed(analogRead(0));
+    state[CUR_POS_IDX] = 0; // position
+    if (SEGMENT.check2) {  // if random speed is selected
+      state[VELOCITY_IDX] = random16(200, 900) * 655;
+      Serial.print("Random velocity (speed): ");
+      Serial.print(state[VELOCITY_IDX]);
+      Serial.print(" (speed=");
+      Serial.print(SEGMENT.speed);
+      Serial.println(")");
+    } else {
+      uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
+      state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
+      Serial.print("Mapped velocity (speed): ");
+      Serial.print(speed);
+      Serial.print(" (speed=");
+      Serial.print(SEGMENT.speed);
+      Serial.println(")");
     }
-  };
+    state[PHASE_IDX] = 0; // phase
+    state[STOP_TIME_IDX] = 0; // stop time
+    state[WOBBLE_STEP_IDX] = 0; // wobble step
+    state[WOBBLE_TIME_IDX] = 0; // wobble timing
+    // Set slowdown start time
+    if (SEGMENT.check3) {  // if random slowdown is selected
+      uint16_t slowdown_delay = random16(2000, 6000);
+      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
+      Serial.print("Random slowdown delay: ");
+      Serial.println(slowdown_delay);
+    } else {
+      uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
+      uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
+      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
+      Serial.print("Mapped slowdown delay: ");
+      Serial.print(slowdown_delay);
+      Serial.print(" (intensity=");
+      Serial.print(SEGMENT.intensity);
+      Serial.println(")");
+    }
+    phase = 0;
+    Serial.println("=== START ===");
+  }
 
-  for (unsigned stripNr=0; stripNr<strips; stripNr++)
-    virtualStrip::runStrip(stripNr, &drops[stripNr*maxNumDrops]);
+  uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
+
+  // Auto-restart after being stopped
+  if (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay)) {
+    random16_add_entropy(analogRead(0));
+    state[CUR_POS_IDX] = 0;
+    if (SEGMENT.check2) {  // if random speed is selected
+      state[VELOCITY_IDX] = random16(200, 900) * 655;
+      Serial.print("Random velocity (speed): ");
+      Serial.print(state[VELOCITY_IDX]);
+      Serial.print(" (speed=");
+      Serial.print(SEGMENT.speed);
+      Serial.println(")");
+    } else {
+      uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
+      state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
+      Serial.print("Mapped velocity (speed): ");
+      Serial.print(speed);
+      Serial.print(" (speed=");
+      Serial.print(SEGMENT.speed);
+      Serial.println(")");
+    }
+    state[PHASE_IDX] = 0;
+    state[STOP_TIME_IDX] = 0;
+    state[WOBBLE_STEP_IDX] = 0;
+    state[WOBBLE_TIME_IDX] = 0;
+    // Set new slowdown start time
+    if (SEGMENT.check3) {  // if random slowdown is selected
+      uint16_t slowdown_delay = random16(2000, 6000);
+      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
+      Serial.print("Random slowdown delay: ");
+      Serial.println(slowdown_delay);
+    } else {
+      uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
+      uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
+      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
+      Serial.print("Mapped slowdown delay: ");
+      Serial.print(slowdown_delay);
+      Serial.print(" (intensity=");
+      Serial.print(SEGMENT.intensity);
+      Serial.println(")");
+    }
+    phase = 0;
+    Serial.println("=== RESTARTING ===");
+  }
+  
+  uint32_t pos_fixed = state[CUR_POS_IDX];
+  uint32_t velocity = state[VELOCITY_IDX];
+  
+  // Phase management
+  if (phase == 0) {
+    // Fast spinning phase
+    if (now >= state[SLOWDOWN_TIME_IDX]) {
+      phase = 1;
+      state[PHASE_IDX] = 1;
+      Serial.println("Phase 0 -> 1 (starting slowdown)");
+    }
+  } else if (phase == 1) {
+    // Slowing phase - apply deceleration
+    uint32_t decel = velocity / 80;
+    if (decel < 100) decel = 100;
+    
+    if (velocity > decel) {
+      velocity -= decel;
+      state[VELOCITY_IDX] = velocity;
+    } else {
+      velocity = 0;
+      state[VELOCITY_IDX] = 0;
+    }
+    
+    // Check if stopped
+    if (velocity < 2000) {
+      velocity = 0;
+      state[VELOCITY_IDX] = 0;
+      phase = 2;
+      state[PHASE_IDX] = 2;
+      state[WOBBLE_STEP_IDX] = 0;
+      // Save the stop position
+      uint16_t stop_pos = (pos_fixed >> 16) % SEGLEN;
+      SEGENV.step = stop_pos;
+      state[WOBBLE_TIME_IDX] = now; // Start wobble timing
+      Serial.print("Phase 1 -> 2 (wobble starting) at LED: ");
+      Serial.println(stop_pos);
+    }
+  } else if (phase == 2) {
+    // Wobble phase - move around the saved stop position
+    uint32_t wobble_step = state[WOBBLE_STEP_IDX];
+    uint16_t stop_pos = SEGENV.step;
+    
+    if (wobble_step == 0 && (now - state[WOBBLE_TIME_IDX] >= 100)) {
+      // Move back one LED from stop position
+      uint16_t back_pos = (stop_pos == 0) ? SEGLEN - 1 : stop_pos - 1;
+      pos_fixed = ((uint32_t)back_pos) << 16;
+      state[CUR_POS_IDX] = pos_fixed;
+      state[WOBBLE_STEP_IDX] = 1;
+      state[WOBBLE_TIME_IDX] = now;
+      Serial.print("Wobble: moved back to LED ");
+      Serial.println(back_pos);
+    } else if (wobble_step == 1 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
+      // Move forward back to stop position
+      pos_fixed = ((uint32_t)stop_pos) << 16;
+      state[CUR_POS_IDX] = pos_fixed;
+      state[WOBBLE_STEP_IDX] = 2;
+      state[WOBBLE_TIME_IDX] = now;
+      Serial.print("Wobble: returned to LED ");
+      Serial.println(stop_pos);
+    } else if (wobble_step == 2 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
+      // Wobble complete, enter stopped phase
+      phase = 3;
+      state[PHASE_IDX] = 3;
+      state[STOP_TIME_IDX] = now;
+      Serial.print("Phase 2 -> 3 (fully stopped) at time: ");
+      Serial.println(now);
+    }
+  }
+  
+  // Update position only if not in wobble or stopped phase
+  if (phase != 2 && phase != 3) {
+    pos_fixed += velocity;
+    state[CUR_POS_IDX] = pos_fixed;
+  }
+  
+  // Get integer position
+  uint16_t pos = (pos_fixed >> 16) % SEGLEN;
+  //if (phase == 0) {
+  //  Serial.print("Position during spinning: ");
+  //  Serial.println(pos);
+  //}
+
+  // Get color
+  uint32_t scale = (255 << 16) / SEGLEN;
+  uint8_t hue = (scale * pos) >> 16;
+  uint32_t color;
+  if (SEGMENT.check1) {
+    color = SEGMENT.color_wheel(hue);  // Random colors mode
+  } else {
+    color = SEGMENT.color_from_palette(hue, false, true, 0);   // Palette mode
+  }
+
+  // Light up current position
+  //SEGMENT.setPixelColor(pos, color);
+  if (phase==0) SEGMENT.setPixelColor(pos, SEGCOLOR(0));
+  else if (phase==1) SEGMENT.setPixelColor(pos, BLUE);
+  else if (phase==2) SEGMENT.setPixelColor(pos, GREEN);
+  else if (phase==3) SEGMENT.setPixelColor(pos, RED);
 
   return FRAMETIME;
 }
-static const char _data_FX_MODE_SPINNER[] PROGMEM = "Spinner@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1";
+static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Spin speed,Spin time,,,Spin delay,Color mode,Random speed,Random time;!,!;!;;m12=1,c3=8";
 
 
 
@@ -870,7 +1003,7 @@ class UserFxUsermod : public Usermod {
     strip.addEffect(255, &mode_ants, _data_FX_MODE_ANTS);
     strip.addEffect(255, &mode_morsecode, _data_FX_MODE_MORSECODE);
     strip.addEffect(255, &mode_2D_lavalamp, _data_FX_MODE_2D_LAVALAMP);
-    strip.addEffect(255, &mode_spinner, _data_FX_MODE_SPINNER);
+    strip.addEffect(255, &mode_spinning_wheel, _data_FX_MODE_SPINNINGWHEEL);
 
     ////////////////////////////////////////
     //  add your effect function(s) here  //

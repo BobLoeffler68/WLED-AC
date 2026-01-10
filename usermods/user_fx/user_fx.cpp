@@ -794,38 +794,15 @@ uint16_t mode_spinning_wheel(void) {
 
   uint8_t phase = state[PHASE_IDX];
   uint32_t now = strip.now;
-  
-  if (SEGENV.call == 0) {
-    // First initialization only
-    random16_set_seed(analogRead(0));
-    state[CUR_POS_IDX] = 0; // position
-    if (SEGMENT.check2) {  // if random speed is selected
-      state[VELOCITY_IDX] = random16(200, 900) * 655;
-    } else {
-      uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
-      state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
-    }
-    state[PHASE_IDX] = 0; // phase
-    state[STOP_TIME_IDX] = 0; // stop time
-    state[WOBBLE_STEP_IDX] = 0; // wobble step
-    state[WOBBLE_TIME_IDX] = 0; // wobble timing
-    // Set slowdown start time
-    if (SEGMENT.check3) {  // if random slowdown is selected
-      uint16_t slowdown_delay = random16(2000, 6000);
-      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-    } else {
-      uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
-      uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
-      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-    }
-    phase = 0;
-  }
 
-  uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
+  uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);  // delay up to 15 seconds after the LED has stopped moving
 
-  // Auto-restart after being stopped
-  if (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay)) {
-    random16_add_entropy(analogRead(0));
+  // Initial setup and auto-restart after being stopped
+  if (SEGENV.call == 0 || (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay))) {
+    if (SEGENV.call == 0)
+      random16_set_seed(analogRead(0));
+    else
+      random16_add_entropy(analogRead(0));
     state[CUR_POS_IDX] = 0;
     if (SEGMENT.check2) {  // if random speed is selected
       state[VELOCITY_IDX] = random16(200, 900) * 655;
@@ -852,7 +829,7 @@ uint16_t mode_spinning_wheel(void) {
   uint32_t pos_fixed = state[CUR_POS_IDX];
   uint32_t velocity = state[VELOCITY_IDX];
   
-  // Phase management
+  // Phase management (0=fast spin, 1=slowing down, 2=wobble at end, 3=stopped)
   if (phase == 0) {
     // Fast spinning phase
     if (now >= state[SLOWDOWN_TIME_IDX]) {
@@ -885,7 +862,7 @@ uint16_t mode_spinning_wheel(void) {
       state[WOBBLE_TIME_IDX] = now; // Start wobble timing
     }
   } else if (phase == 2) {
-    // Wobble phase - move around the saved stop position
+    // Wobble phase - wobble around the saved stop position
     uint32_t wobble_step = state[WOBBLE_STEP_IDX];
     uint16_t stop_pos = SEGENV.step;
     

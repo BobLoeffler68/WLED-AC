@@ -766,6 +766,7 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
  *  The first checkbox sets the color mode (color wheel or palette)
  *  The second checkbox sets the spin speed to a random number range
  *  The third checkbox sets the spin time to a random number range
+ *  aux1 stores the settings to see if a change was made
  */
 
 uint16_t mode_spinning_wheel(void) {
@@ -795,10 +796,13 @@ uint16_t mode_spinning_wheel(void) {
   uint8_t phase = state[PHASE_IDX];
   uint32_t now = strip.now;
 
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom3 + SEGMENT.check2 + SEGMENT.check3;
+  bool settingschanged = (SEGENV.aux0 != settingssum);
+
   uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);  // delay up to 15 seconds after the LED has stopped moving
 
   // Initial setup and auto-restart after being stopped
-  if (SEGENV.call == 0 || (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay))) {
+  if (SEGENV.call == 0 || settingschanged || (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay))) {
     if (SEGENV.call == 0)
       random16_set_seed(analogRead(0));
     else
@@ -824,6 +828,7 @@ uint16_t mode_spinning_wheel(void) {
       state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
     }
     phase = 0;
+    SEGENV.aux0 = settingssum;  // save the settings
   }
   
   uint32_t pos_fixed = state[CUR_POS_IDX];

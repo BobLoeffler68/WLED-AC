@@ -760,17 +760,19 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 /*
  * Spinning Wheel effect - LED animates around 1D strip, slows down and stops at random position
  *  Created by Bob Loeffler and claude.ai
- *  First slider (Spin speed) is for the speed of the moving/spinning LED
- *  Second slider (Spin time) is for how long before the slowdown phase starts
+ *  First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range)
+ *  Second slider (Spin time) is for how long before the slowdown phase starts (random number within a narrow time range)
  *  Third slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin
  *  The first checkbox sets the color mode (color wheel or palette)
- *  The second checkbox sets the spin speed to a random number range
- *  The third checkbox sets the spin time to a random number range
- *  aux1 stores the settings to see if a change was made
+ *  The second checkbox sets the spin speed to a random number (within the full speed range)
+ *  The third checkbox sets the spin time to a random number (within the full time range)
+ *  aux0 stores the settings checksum to detect changes
+ *  aux1 stores the color scale for performance
  */
 
 uint16_t mode_spinning_wheel(void) {
   if (SEGLEN < 1) return mode_static();
+  
   unsigned dataSize = 28; // 7 state variables × 4 bytes each
   if (!SEGENV.allocateData(dataSize)) return mode_static();
   uint32_t* state = (uint32_t*)SEGENV.data;
@@ -781,7 +783,7 @@ uint16_t mode_spinning_wheel(void) {
   // state[4] = wobble step (0=at stop pos, 1=moved back, 2=returned to stop)
   // state[5] = slowdown start time (when to transition from phase 0 to phase 1)
   // state[6] = wobble timing (for 200ms / 400ms / 300ms delays)
-
+  
   // state[] index values for easier readability
   constexpr unsigned CUR_POS_IDX       = 0;
   constexpr unsigned VELOCITY_IDX      = 1;
@@ -796,45 +798,58 @@ uint16_t mode_spinning_wheel(void) {
   uint8_t phase = state[PHASE_IDX];
   uint32_t now = strip.now;
 
-  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom3 + SEGMENT.check2 + SEGMENT.check3;
-  bool settingschanged = (SEGENV.aux0 != settingssum);
-
-  uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);  // delay up to 15 seconds after the LED has stopped moving
-
-  // Initial setup and auto-restart after being stopped
-  if (SEGENV.call == 0 || settingschanged || (phase == 3 && state[STOP_TIME_IDX] != 0 && (now >= state[STOP_TIME_IDX] + spin_delay))) {
-    if (SEGENV.call == 0)
-      random16_set_seed(analogRead(0));
-    else
+  // Check for settings changes or restart conditions
+  bool needsReset = false;
+  if (SEGENV.call == 0) {
+    needsReset = true;
+    random16_set_seed(analogRead(0));
+    SEGENV.aux1 = (255 << 16) / SEGLEN; // Cache the color scaling
+  } else {
+    uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom3 + SEGMENT.check2 + SEGMENT.check3;
+    if (SEGENV.aux0 != settingssum) {
+      needsReset = true;
       random16_add_entropy(analogRead(0));
+      SEGENV.aux0 = settingssum;
+    } else if (phase == 3 && state[STOP_TIME_IDX] != 0) {
+      uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);  // delay between spins
+      if (now >= state[STOP_TIME_IDX] + spin_delay) {
+        needsReset = true;
+        random16_add_entropy(analogRead(0));
+      }
+    }
+  }
+
+  // Initialize or restart
+  if (needsReset) {
     state[CUR_POS_IDX] = 0;
-    if (SEGMENT.check2) {  // if random speed is selected
+    
+    // Set velocity
+    if (SEGMENT.check2) {  // random speed
       state[VELOCITY_IDX] = random16(200, 900) * 655;
     } else {
       uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
       state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
     }
+    
+    // Set slowdown start time
+    if (SEGMENT.check3) {  // random slowdown
+      state[SLOWDOWN_TIME_IDX] = now + random16(2000, 6000);
+    } else {
+      uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
+      state[SLOWDOWN_TIME_IDX] = now + random16(slowdown - 1000, slowdown + 1000);
+    }
+    
     state[PHASE_IDX] = 0;
     state[STOP_TIME_IDX] = 0;
     state[WOBBLE_STEP_IDX] = 0;
     state[WOBBLE_TIME_IDX] = 0;
-    // Set new slowdown start time
-    if (SEGMENT.check3) {  // if random slowdown is selected
-      uint16_t slowdown_delay = random16(2000, 6000);
-      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-    } else {
-      uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
-      uint16_t slowdown_delay = random16(slowdown - 1000, slowdown + 1000);
-      state[SLOWDOWN_TIME_IDX] = now + slowdown_delay;
-    }
     phase = 0;
-    SEGENV.aux0 = settingssum;  // save the settings
   }
   
   uint32_t pos_fixed = state[CUR_POS_IDX];
   uint32_t velocity = state[VELOCITY_IDX];
   
-  // Phase management (0=fast spin, 1=slowing down, 2=wobble at end, 3=stopped)
+  // Phase management
   if (phase == 0) {
     // Fast spinning phase
     if (now >= state[SLOWDOWN_TIME_IDX]) {
@@ -846,13 +861,8 @@ uint16_t mode_spinning_wheel(void) {
     uint32_t decel = velocity / 80;
     if (decel < 100) decel = 100;
     
-    if (velocity > decel) {
-      velocity -= decel;
-      state[VELOCITY_IDX] = velocity;
-    } else {
-      velocity = 0;
-      state[VELOCITY_IDX] = 0;
-    }
+    velocity = (velocity > decel) ? velocity - decel : 0;
+    state[VELOCITY_IDX] = velocity;
     
     // Check if stopped
     if (velocity < 2000) {
@@ -861,30 +871,29 @@ uint16_t mode_spinning_wheel(void) {
       phase = 2;
       state[PHASE_IDX] = 2;
       state[WOBBLE_STEP_IDX] = 0;
-      // Save the stop position
-      uint16_t stop_pos = (pos_fixed >> 16) % SEGLEN;
-      SEGENV.step = stop_pos;
-      state[WOBBLE_TIME_IDX] = now; // Start wobble timing
+      SEGENV.step = (pos_fixed >> 16) % SEGLEN; // Save stop position
+      state[WOBBLE_TIME_IDX] = now;
     }
   } else if (phase == 2) {
-    // Wobble phase - wobble around the saved stop position
+    // Wobble phase (moves the LED back one and then forward one)
     uint32_t wobble_step = state[WOBBLE_STEP_IDX];
     uint16_t stop_pos = SEGENV.step;
+    uint32_t elapsed = now - state[WOBBLE_TIME_IDX];
     
-    if (wobble_step == 0 && (now - state[WOBBLE_TIME_IDX] >= 200)) {
+    if (wobble_step == 0 && elapsed >= 200) {
       // Move back one LED from stop position
       uint16_t back_pos = (stop_pos == 0) ? SEGLEN - 1 : stop_pos - 1;
       pos_fixed = ((uint32_t)back_pos) << 16;
       state[CUR_POS_IDX] = pos_fixed;
       state[WOBBLE_STEP_IDX] = 1;
       state[WOBBLE_TIME_IDX] = now;
-    } else if (wobble_step == 1 && (now - state[WOBBLE_TIME_IDX] >= 400)) {
-      // Move forward back to stop position
+    } else if (wobble_step == 1 && elapsed >= 400) {
+      // Move forward to the stop position
       pos_fixed = ((uint32_t)stop_pos) << 16;
       state[CUR_POS_IDX] = pos_fixed;
       state[WOBBLE_STEP_IDX] = 2;
       state[WOBBLE_TIME_IDX] = now;
-    } else if (wobble_step == 2 && (now - state[WOBBLE_TIME_IDX] >= 300)) {
+    } else if (wobble_step == 2 && elapsed >= 300) {
       // Wobble complete, enter stopped phase
       phase = 3;
       state[PHASE_IDX] = 3;
@@ -892,26 +901,16 @@ uint16_t mode_spinning_wheel(void) {
     }
   }
   
-  // Update position only if not in wobble or stopped phase
-  if (phase != 2 && phase != 3) {
+  // Update position (phases 0 and 1 only)
+  if (phase == 0 || phase == 1) {
     pos_fixed += velocity;
     state[CUR_POS_IDX] = pos_fixed;
   }
   
-  // Get integer position
+  // Draw LED for all phases
   uint16_t pos = (pos_fixed >> 16) % SEGLEN;
-
-  // Get color
-  uint32_t scale = (255 << 16) / SEGLEN;
-  uint8_t hue = (scale * pos) >> 16;
-  uint32_t color;
-  if (SEGMENT.check1) {
-    color = SEGMENT.color_wheel(hue);  // Random colors mode
-  } else {
-    color = SEGMENT.color_from_palette(hue, false, true, 0);   // Palette mode
-  }
-
-  // Light up current position
+  uint8_t hue = (SEGENV.aux1 * pos) >> 16; // Use cached color scaling
+  uint32_t color = SEGMENT.check1 ? SEGMENT.color_wheel(hue) : SEGMENT.color_from_palette(hue, false, true, 0);
   SEGMENT.setPixelColor(pos, color);
 
   return FRAMETIME;

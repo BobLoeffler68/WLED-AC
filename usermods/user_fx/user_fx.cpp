@@ -713,7 +713,7 @@ uint16_t mode_2D_lavalamp(void) {
     if (SEGMENT.check1) {
       color = SEGMENT.color_wheel(p->hue);  // Random colors mode
     } else {
-      color = SEGMENT.color_from_palette(p->hue, false, true, 0);   // Palette mode
+      color = SEGMENT.color_from_palette(p->hue, true, PALETTE_SOLID_WRAP, 0);   // Palette mode
     }
     
     // Extract RGB and apply life/opacity

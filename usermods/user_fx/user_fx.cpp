@@ -1009,89 +1009,97 @@ static const char _data_FX_MODE_2D_FROSTEDFLAME[] PROGMEM = "Frosted Flame@!,!,,
  * Adapted to WLED by Bob Loeffler and claude.ai
  */
 
+// Constants for magma effect
+#define MAGMA_DELTA_VALUE 8
+#define MAGMA_DELTA_HUE 32
+
 static uint16_t mode_2D_magma(void) {
   const uint16_t width = SEG_W;
   const uint16_t height = SEG_H;
-  const uint8_t MAGMA_MAX_PARTICLES = width / 2;  // Scale with segment width
+  const uint8_t MAGMA_MAX_PARTICLES = width / 2;
   
-  // Allocate memory: particles (4 floats each) + 2 floats for noise counters
-  if (!SEGENV.allocateData((MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float))) return mode_static();
+  // Allocate memory: particles (4 floats each) + 2 floats for noise counters + shiftHue cache
+  const uint16_t dataSize = (MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float) + height * sizeof(uint8_t);
+  if (!SEGENV.allocateData(dataSize)) return mode_static();
   
   float* particleData = reinterpret_cast<float*>(SEGENV.data);
-  float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];      // Noise counter Y
-  float* ff_z = &particleData[MAGMA_MAX_PARTICLES * 4 + 1];  // Noise counter Z
+  float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];
+  float* ff_z = &particleData[MAGMA_MAX_PARTICLES * 4 + 1];
+  uint8_t* shiftHueCache = reinterpret_cast<uint8_t*>(&particleData[MAGMA_MAX_PARTICLES * 4 + 2]);
   
   // Check if settings changed
   uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
 
   if (SEGENV.call == 0 || settingsChanged) {
+    // Pre-calculate shift hue values
+    for (uint16_t j = 0; j < height; j++) {
+      shiftHueCache[j] = map(j, 0, height + height / 4, 255, 0);
+    }
+    
     // Initialize all particles
     for (uint8_t i = 0; i < MAGMA_MAX_PARTICLES; i++) {
       uint8_t idx = i * 4;
-      particleData[idx + 0] = hw_random(0, width * 100) / 100.0f;  // posX
-      particleData[idx + 1] = hw_random(0, height * 25) / 100.0f;  // posY (start low)
-      particleData[idx + 2] = hw_random(-75, 75) / 100.0f;         // speedX
+      particleData[idx + 0] = hw_random(0, width * 100) / 100.0f;
+      particleData[idx + 1] = hw_random(0, height * 25) / 100.0f;
+      particleData[idx + 2] = hw_random(-75, 75) / 100.0f;
       
-      // Better velocity range for good height
       float baseVelocity = hw_random(60, 120) / 100.0f;
-      if (hw_random8() < 50) {  // ~20% chance for extra height
+      if (hw_random8() < 50) {
         baseVelocity *= 1.6f;
       }
-      particleData[idx + 3] = baseVelocity;  // speedY (upward)
+      particleData[idx + 3] = baseVelocity;
     }
     *ff_y = 0.0f;
     *ff_z = 0.0f;
     SEGENV.aux0 = settingssum;
   }
   
-  // Speed control - wider range for slower low end
-  // Map to a wider range: very slow crawl at 0, fast movement at 255
+  // Speed control
   float speedfactor = SEGMENT.speed / 255.0f;
-  speedfactor = speedfactor * speedfactor * 1.5f;  // Square and scale for better range
-  if (speedfactor < 0.001f) speedfactor = 0.001f;  // Nearly stopped at 0
+  speedfactor = speedfactor * speedfactor * 1.5f;
+  if (speedfactor < 0.001f) speedfactor = 0.001f;
   
-  // Gravity control (using custom1 slider) - affects particle physics
-  float gravity = map(SEGMENT.custom1, 0, 255, 5, 20) / 100.0f;  // 0.05 to 0.20
+  // Gravity control
+  float gravity = map(SEGMENT.custom1, 0, 255, 5, 20) / 100.0f;
   
-  // Burst size for noise - fixed value for consistent look
-  uint8_t deltaValue = 8;
-  uint8_t deltaHue = 32;
-  
-  // Number of particles (lava bombs)
+  // Number of particles
   uint8_t particleCount = map(SEGMENT.intensity, 0, 255, 2, MAGMA_MAX_PARTICLES);
   particleCount = constrain(particleCount, 2, MAGMA_MAX_PARTICLES);
   
   // Fade background
   SEGMENT.fadeToBlackBy(50);
   
-  // Draw noise-based magma background
+  // Pre-calculate color palette lookup table (256 colors)
+  static CRGB colorPalette[256];
+  static bool paletteInitialized = false;
+  if (!paletteInitialized) {
+    for (uint16_t colorIndex = 0; colorIndex < 256; colorIndex++) {
+      if (colorIndex < 64) {
+        colorPalette[colorIndex] = CRGB(colorIndex * 4, 0, 0);
+      } else if (colorIndex < 128) {
+        uint8_t val = (colorIndex - 64) * 4;
+        colorPalette[colorIndex] = CRGB(255, val, 0);
+      } else if (colorIndex < 192) {
+        uint8_t val = (colorIndex - 128) * 4;
+        colorPalette[colorIndex] = CRGB(255, 128 + val / 2, 0);
+      } else {
+        uint8_t val = (colorIndex - 192) * 4;
+        colorPalette[colorIndex] = CRGB(255, 255, val);
+      }
+    }
+    paletteInitialized = true;
+  }
+  
+  // Draw noise-based magma background - optimized
+  uint16_t ff_y_int = (uint16_t)*ff_y;
+  uint16_t ff_z_int = (uint16_t)*ff_z;
+  
   for (uint16_t i = 0; i < width; i++) {
     for (uint16_t j = 0; j < height; j++) {
-      uint8_t shiftHue = map(j, 0, height + height / 4, 255, 0);
-      uint8_t noiseVal = perlin8(i * deltaValue, (j + (uint16_t)*ff_y + hw_random8(2)) * deltaHue, (uint16_t)*ff_z);
-      uint8_t colorIndex = qsub8(noiseVal, shiftHue);
-      
-      // Enhanced color palette with more yellow
-      CRGB color;
-      if (colorIndex < 64) {
-        // Black to dark red
-        color = CRGB(colorIndex * 4, 0, 0);
-      } else if (colorIndex < 128) {
-        // Dark red to bright red/orange
-        uint8_t val = (colorIndex - 64) * 4;
-        color = CRGB(255, val, 0);
-      } else if (colorIndex < 192) {
-        // Orange to yellow
-        uint8_t val = (colorIndex - 128) * 4;
-        color = CRGB(255, 128 + val / 2, 0);
-      } else {
-        // Yellow to white
-        uint8_t val = (colorIndex - 192) * 4;
-        color = CRGB(255, 255, val);
-      }
-      
-      SEGMENT.addPixelColorXY(i, height - 1 - j, color);
+      uint8_t noiseVal = perlin8(i * MAGMA_DELTA_VALUE, (j + ff_y_int) * MAGMA_DELTA_HUE, ff_z_int);
+      uint8_t colorIndex = qsub8(noiseVal, shiftHueCache[j]);
+      SEGMENT.addPixelColorXY(i, height - 1 - j, colorPalette[colorIndex]);
     }
   }
   
@@ -1099,66 +1107,63 @@ static uint16_t mode_2D_magma(void) {
   for (uint8_t i = 0; i < particleCount; i++) {
     uint8_t idx = i * 4;
     
-    // Apply gravity - independent of speedfactor
     particleData[idx + 3] -= gravity;
-    
-    // Update position - independent of speedfactor
     particleData[idx + 0] += particleData[idx + 2];
     particleData[idx + 1] += particleData[idx + 3];
     
     float posX = particleData[idx + 0];
     float posY = particleData[idx + 1];
     
-    // Bounce off ceiling
     if (posY > height + height / 4) {
       particleData[idx + 3] = -particleData[idx + 3] * 0.8f;
     }
     
-    // Reset particle if it's too low or out of bounds
     if (posY < height / 8 - 1 || posX < 0 || posX >= width) {
       particleData[idx + 0] = hw_random(0, width * 100) / 100.0f;
       particleData[idx + 1] = hw_random(0, height * 25) / 100.0f;
       particleData[idx + 2] = hw_random(-75, 75) / 100.0f;
       
-      // Better velocity range for good height
       float baseVelocity = hw_random(60, 120) / 100.0f;
-      if (hw_random8() < 50) {  // ~20% chance for extra height
+      if (hw_random8() < 50) {
         baseVelocity *= 1.6f;
       }
       particleData[idx + 3] = baseVelocity;
       continue;
     }
     
-    // Draw particle with color that cools (yellower when rising, more orange when falling)
     int16_t xi = (int16_t)posX;
     int16_t yi = (int16_t)posY;
     
     if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
-      // Color based on velocity - hotter (more orange) when moving up, cooler (more orange-red) when falling
       float velocityY = particleData[idx + 3];
       uint8_t cooling = 0;
-      if (velocityY < 0) {  // Falling
-        cooling = max((uint8_t)(fabsf(velocityY) * 40), (uint8_t)0);  // More orange-red as it falls faster
+      if (velocityY < 0) {
+        cooling = max((uint8_t)(fabsf(velocityY) * 40), (uint8_t)0);
       }
       
-      uint8_t variation = hw_random8(32);
       CRGB pcolor = CRGB(255, 96 - cooling, 0);
       
+      // Pre-calculate anti-aliasing weights
       float xf = posX - xi;
       float yf = posY - yi;
+      float ix = 1.0f - xf;
+      float iy = 1.0f - yf;
       
-      // Anti-aliased drawing
-      SEGMENT.addPixelColorXY(xi, yi, pcolor.scale8(255 * (1.0f - xf) * (1.0f - yf)));
+      uint8_t w0 = 255 * ix * iy;
+      uint8_t w1 = 255 * xf * iy;
+      uint8_t w2 = 255 * ix * yf;
+      uint8_t w3 = 255 * xf * yf;
+      
+      SEGMENT.addPixelColorXY(xi, yi, pcolor.scale8(w0));
       if (xi + 1 < width) 
-        SEGMENT.addPixelColorXY(xi + 1, yi, pcolor.scale8(255 * xf * (1.0f - yf)));
+        SEGMENT.addPixelColorXY(xi + 1, yi, pcolor.scale8(w1));
       if (yi + 1 < height) 
-        SEGMENT.addPixelColorXY(xi, yi + 1, pcolor.scale8(255 * (1.0f - xf) * yf));
+        SEGMENT.addPixelColorXY(xi, yi + 1, pcolor.scale8(w2));
       if (xi + 1 < width && yi + 1 < height) 
-        SEGMENT.addPixelColorXY(xi + 1, yi + 1, pcolor.scale8(255 * xf * yf));
+        SEGMENT.addPixelColorXY(xi + 1, yi + 1, pcolor.scale8(w3));
     }
   }
   
-  // Update noise animation - use float accumulation for smooth slow speeds
   *ff_y += speedfactor * 2.0f;
   *ff_z += speedfactor;
   

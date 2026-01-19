@@ -763,12 +763,13 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 /*
  * Spinning Wheel effect - LED animates around 1D strip (or each column in a 2D matrix), slows down and stops at random position
  *  Created by Bob Loeffler and claude.ai
- *  First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range)
- *  Second slider (Spin time) is for how long before the slowdown phase starts (random number within a narrow time range)
- *  Third slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin
+ *  First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range).
+ *     If value is 0, a random speed will be selected from the full range of values.
+ *  Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
+ *     If value is 0, a random time will be selected from the full range of values.
+ *  Third slider (Spinner size) is for the number of pixels that make up the spinner
+ *  Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin
  *  The first checkbox sets the color mode (color wheel or palette)
- *  The second checkbox sets the spin speed to a random number (within the full speed range)
- *  The third checkbox sets the spin time to a random number (within the full time range)
  *  aux0 stores the settings checksum to detect changes
  *  aux1 stores the color scale for performance
  */
@@ -809,7 +810,7 @@ static uint16_t mode_spinning_wheel(void) {
   }
 
   // Check if settings changed (do this once, not per virtual strip)
-  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom3 + SEGMENT.check2 + SEGMENT.check3;
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom3;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
   if (settingsChanged) {
     random16_add_entropy(analogRead(0));
@@ -840,18 +841,18 @@ static uint16_t mode_spinning_wheel(void) {
         state[CUR_POS_IDX] = 0;
         
         // Set velocity
-        if (SEGMENT.check2) {  // random speed
+        uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
+        if (speed == 300) {  // random speed (user selected 0 on speed slider)
           state[VELOCITY_IDX] = random16(200, 900) * 655;   // fixed-point velocity scaling (approx. 65536/100) 
         } else {
-          uint16_t speed = map(SEGMENT.speed, 0, 255, 300, 800);
           state[VELOCITY_IDX] = random16(speed - 100, speed + 100) * 655;
         }
         
         // Set slowdown start time
-        if (SEGMENT.check3) {  // random slowdown
+        uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
+        if (slowdown == 0) {  // random slowdown start time (user selected 0 on intensity slider)
           state[SLOWDOWN_TIME_IDX] = now + random16(2000, 6000);
         } else {
-          uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
           state[SLOWDOWN_TIME_IDX] = now + random16(slowdown - 1000, slowdown + 1000);
         }
         
@@ -929,7 +930,13 @@ static uint16_t mode_spinning_wheel(void) {
       uint16_t pos = (pos_fixed >> 16) % SEGLEN;
       uint8_t hue = (SEGENV.aux1 * pos) >> 8; // Use cached color scaling
       uint32_t color = SEGMENT.check1 ? SEGMENT.color_wheel(hue) : SEGMENT.color_from_palette(hue, true, PALETTE_SOLID_WRAP, 0);
-      SEGMENT.setPixelColor(indexToVStrip(pos, stripNr), color);
+
+      // Draw the spinner with configurable size (1-10 LEDs)
+      uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
+      for (uint8_t i = 0; i < spinnerSize; i++) {
+        uint16_t drawPos = (pos + i) % SEGLEN;
+        SEGMENT.setPixelColor(indexToVStrip(drawPos, stripNr), color);
+      }
     }
   };
 
@@ -939,7 +946,7 @@ static uint16_t mode_spinning_wheel(void) {
 
   return FRAMETIME;
 }
-static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Spin speed,Spin time,,,Spin delay,Color mode,Random speed,Random time;!,!;!;;m12=1,c3=8";
+static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed (0=random),Slowdown (0=random),Spinner size,,Spin delay,Color mode,,;!,!;!;;m12=1,c1=1,c3=8";
 
 
 /*

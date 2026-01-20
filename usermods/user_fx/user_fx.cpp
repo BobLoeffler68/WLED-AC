@@ -767,9 +767,11 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
  *     If value is 0, a random speed will be selected from the full range of values.
  *  Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
  *     If value is 0, a random time will be selected from the full range of values.
- *  Third slider (Spinner size) is for the number of pixels that make up the spinner
- *  Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin
- *  The first checkbox sets the color mode (color wheel or palette)
+ *  Third slider (Spinner size) is for the number of pixels that make up the spinner.
+ *  Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin.
+ *  The first checkbox sets the color mode (color wheel or palette).
+ *  The second checkbox sets "color per block" mode. Enabled means that each spinner block will be the same color no matter what its LED position is.
+ *  The third checkbox enables synchronized restart (all spinners restart together instead of individually).
  *  aux0 stores the settings checksum to detect changes
  *  aux1 stores the color scale for performance
  */
@@ -792,7 +794,7 @@ static uint16_t mode_spinning_wheel(void) {
   // state[7] = store the stop position per strip
 
   // state[] index values for easier readability
-  constexpr unsigned CUR_POS_IDX       = 0;
+  constexpr unsigned CUR_POS_IDX       = 0;  // state[0]
   constexpr unsigned VELOCITY_IDX      = 1;
   constexpr unsigned PHASE_IDX         = 2;
   constexpr unsigned STOP_TIME_IDX     = 3;
@@ -810,16 +812,38 @@ static uint16_t mode_spinning_wheel(void) {
   }
 
   // Check if settings changed (do this once, not per virtual strip)
-  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom3;
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom3 + SEGMENT.check3;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
   if (settingsChanged) {
     random16_add_entropy(analogRead(0));
     SEGENV.aux0 = settingssum;
   }
 
+  // Check if all spinners are stopped and ready to restart (for synchronized restart)
+  bool allReadyToRestart = true;
+  if (SEGMENT.check3) {
+    uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
+    uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
+    uint32_t now = strip.now;
+    
+    for (unsigned stripNr = 0; stripNr < strips; stripNr += spinnerSize) {
+      uint32_t* stripState = &state[stripNr * stateVarsPerStrip];
+      // Check if this spinner is stopped AND has waited its delay
+      if (stripState[PHASE_IDX] != 3 || stripState[STOP_TIME_IDX] == 0) {
+        allReadyToRestart = false;
+        break;
+      }
+      // Check if delay has elapsed
+      if ((now - stripState[STOP_TIME_IDX]) < spin_delay) {
+        allReadyToRestart = false;
+        break;
+      }
+    }
+  }
+
   struct virtualStrip {
     
-    static void runStrip(uint16_t stripNr, uint32_t* state, bool settingsChanged) {
+    static void runStrip(uint16_t stripNr, uint32_t* state, bool settingsChanged, bool allReadyToRestart) {
 
       uint8_t phase = state[PHASE_IDX];
       uint32_t now = strip.now;
@@ -831,9 +855,18 @@ static uint16_t mode_spinning_wheel(void) {
       } else if (settingsChanged) {
         needsReset = true;
       } else if (phase == 3 && state[STOP_TIME_IDX] != 0) {
-          uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);  // delay between spins
-          if ((now - state[STOP_TIME_IDX]) >= spin_delay)
-            needsReset = true;
+          // If synchronized restart is enabled, only restart when all strips are ready
+          if (SEGMENT.check3) {
+            if (allReadyToRestart) {
+              needsReset = true;
+            }
+          } else {
+            // Normal mode: restart after individual strip delay
+            uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
+            if ((now - state[STOP_TIME_IDX]) >= spin_delay) {
+              needsReset = true;
+            }
+          }
       }
 
       // Initialize or restart
@@ -850,7 +883,7 @@ static uint16_t mode_spinning_wheel(void) {
         
         // Set slowdown start time
         uint16_t slowdown = map(SEGMENT.intensity, 0, 255, 3000, 5000);
-        if (slowdown == 0) {  // random slowdown start time (user selected 0 on intensity slider)
+        if (slowdown == 3000) {  // random slowdown start time (user selected 0 on intensity slider)
           state[SLOWDOWN_TIME_IDX] = now + random16(2000, 6000);
         } else {
           state[SLOWDOWN_TIME_IDX] = now + random16(slowdown - 1000, slowdown + 1000);
@@ -926,27 +959,50 @@ static uint16_t mode_spinning_wheel(void) {
         state[CUR_POS_IDX] = pos_fixed;
       }
       
-      // Draw LED for all phases using indexToVStrip
+      // Draw LED for all phases
       uint16_t pos = (pos_fixed >> 16) % SEGLEN;
-      uint8_t hue = (SEGENV.aux1 * pos) >> 8; // Use cached color scaling
+
+      uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
+
+      // Calculate color once per spinner block (based on strip number, not position)
+      uint8_t hue;
+      if (SEGMENT.check2) {
+        // Each spinner block gets its own color based on strip number
+        uint16_t numSpinners = max(1, (int)(SEGMENT.nrOfVStrips() / spinnerSize));
+        hue = (255 * (stripNr / spinnerSize)) / numSpinners;
+      } else {
+        // Color changes with position
+        hue = (SEGENV.aux1 * pos) >> 8;
+      }
+
       uint32_t color = SEGMENT.check1 ? SEGMENT.color_wheel(hue) : SEGMENT.color_from_palette(hue, true, PALETTE_SOLID_WRAP, 0);
 
       // Draw the spinner with configurable size (1-10 LEDs)
-      uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
-      for (uint8_t i = 0; i < spinnerSize; i++) {
-        uint16_t drawPos = (pos + i) % SEGLEN;
-        SEGMENT.setPixelColor(indexToVStrip(drawPos, stripNr), color);
+      for (int8_t x = 0; x < spinnerSize; x++) {
+        for (uint8_t y = 0; y < spinnerSize; y++) {
+          uint16_t drawPos = (pos + y) % SEGLEN;
+          int16_t drawStrip = stripNr + x;
+          
+          // Wrap horizontally if needed, or skip if out of bounds
+          if (drawStrip >= 0 && drawStrip < (int16_t)SEGMENT.nrOfVStrips()) {
+            SEGMENT.setPixelColor(indexToVStrip(drawPos, drawStrip), color);
+          }
+        }
       }
     }
   };
 
   for (unsigned stripNr=0; stripNr<strips; stripNr++) {
-    virtualStrip::runStrip(stripNr, &state[stripNr * stateVarsPerStrip], settingsChanged);
+    // Only run on strips that are multiples of spinnerSize to avoid overlap
+    uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
+    if (stripNr % spinnerSize == 0) {
+      virtualStrip::runStrip(stripNr, &state[stripNr * stateVarsPerStrip], settingsChanged, allReadyToRestart);
+    }
   }
 
   return FRAMETIME;
 }
-static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed (0=random),Slowdown (0=random),Spinner size,,Spin delay,Color mode,,;!,!;!;;m12=1,c1=1,c3=8";
+static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed (0=random),Slowdown (0=random),Spinner size,,Spin delay,Color mode,Color per block,Sync restart;!,!;!;;m12=1,c1=1,c3=8";
 
 
 /*
@@ -1008,10 +1064,9 @@ static uint16_t mode_2D_frostedflame(void) {
 static const char _data_FX_MODE_2D_FROSTEDFLAME[] PROGMEM = "Frosted Flame@!,!,,,,Color mode,,;!,!;!;2;pal=35,sx=192";
 
 
-
 /*
  * Magma effect - 2D
- * Adapted from FireLamp_JeeUI implementation
+ * Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
  * Original idea by SottNick, remastered by kostyamat
  * Adapted to WLED by Bob Loeffler and claude.ai
  */

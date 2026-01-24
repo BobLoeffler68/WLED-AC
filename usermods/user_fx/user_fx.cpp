@@ -780,6 +780,8 @@ static uint16_t mode_spinning_wheel(void) {
   if (SEGLEN < 1) return mode_static();
   
   unsigned strips = SEGMENT.nrOfVStrips();
+  if (strips == 0) return mode_static();
+
   constexpr unsigned stateVarsPerStrip = 8;
   unsigned dataSize = sizeof(uint32_t) * stateVarsPerStrip;
   if (!SEGENV.allocateData(dataSize * strips)) return mode_static();
@@ -805,11 +807,10 @@ static uint16_t mode_spinning_wheel(void) {
 
   SEGMENT.fill(SEGCOLOR(1));
 
-  const uint16_t vstripLen = SEGMENT.is2D() ? SEGMENT.virtualHeight() : SEGLEN;
   // Handle random seeding globally (outside the virtual strip)
   if (SEGENV.call == 0) {
     random16_set_seed(hw_random16());
-    SEGENV.aux1 = (255 << 8) / vstripLen; // Cache the color scaling
+    SEGENV.aux1 = (255 << 8) / SEGLEN; // Cache the color scaling
   }
 
   // Check if settings changed (do this once, not per virtual strip)
@@ -843,13 +844,10 @@ static uint16_t mode_spinning_wheel(void) {
   }
  
   struct virtualStrip {
-    
     static void runStrip(uint16_t stripNr, uint32_t* state, bool settingsChanged, bool allReadyToRestart) {
 
       uint8_t phase = state[PHASE_IDX];
       uint32_t now = strip.now;
-
-      const uint16_t vstripLen = SEGMENT.is2D() ? SEGMENT.virtualHeight() : SEGLEN;
 
       // Check for restart conditions
       bool needsReset = false;
@@ -925,7 +923,7 @@ static uint16_t mode_spinning_wheel(void) {
           phase = 2;
           state[PHASE_IDX] = 2;
           state[WOBBLE_STEP_IDX] = 0;
-          uint16_t stop_pos = (pos_fixed >> 16) % vstripLen;
+          uint16_t stop_pos = (pos_fixed >> 16) % SEGLEN;
           state[STOP_POS_IDX] = stop_pos;
           state[WOBBLE_TIME_IDX] = now;
         }
@@ -937,7 +935,7 @@ static uint16_t mode_spinning_wheel(void) {
         
         if (wobble_step == 0 && elapsed >= 200) {
           // Move back one LED from stop position
-          uint16_t back_pos = (stop_pos == 0) ? vstripLen - 1 : stop_pos - 1;
+          uint16_t back_pos = (stop_pos == 0) ? SEGLEN - 1 : stop_pos - 1;
           pos_fixed = ((uint32_t)back_pos) << 16;
           state[CUR_POS_IDX] = pos_fixed;
           state[WOBBLE_STEP_IDX] = 1;
@@ -963,7 +961,7 @@ static uint16_t mode_spinning_wheel(void) {
       }
       
       // Draw LED for all phases
-      uint16_t pos = (pos_fixed >> 16) % vstripLen;
+      uint16_t pos = (pos_fixed >> 16) % SEGLEN;
 
       uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
 
@@ -983,7 +981,7 @@ static uint16_t mode_spinning_wheel(void) {
       // Draw the spinner with configurable size (1-10 LEDs)
       for (int8_t x = 0; x < spinnerSize; x++) {
         for (uint8_t y = 0; y < spinnerSize; y++) {
-          uint16_t drawPos = (pos + y) % vstripLen;
+          uint16_t drawPos = (pos + y) % SEGLEN;
           int16_t drawStrip = stripNr + x;
           
           // Wrap horizontally if needed, or skip if out of bounds

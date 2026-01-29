@@ -524,15 +524,15 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,,Colo
 
 /*
 /  Lava Lamp 2D effect
-*  Uses particles to simulate rising blobs of "lava"
-*  Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
-*  Created by Bob Loeffler using claude.ai
-*  The first slider sets the speed of the rising and falling blobs
-*  The second slider sets the number of active blobs
-*  The third slider sets the size range of the blobs
-*  The first checkbox sets the color mode (color wheel or palette)
-*  The second checkbox sets the attraction of blobs (checked will make the blobs attract other close blobs horizontally)
-*  aux0 keeps track of the blob size changes
+*   Uses particles to simulate rising blobs of "lava"
+*   Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
+*   Created by Bob Loeffler using claude.ai
+*   The first slider sets the speed of the rising and falling blobs
+*   The second slider sets the number of active blobs
+*   The third slider sets the size range of the blobs
+*   The first checkbox sets the color mode (color wheel or palette)
+*   The second checkbox sets the attraction of blobs (checked will make the blobs attract other close blobs horizontally)
+*   aux0 keeps track of the blob size changes
 */
 
 typedef struct LavaParticle {
@@ -761,20 +761,20 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 
 
 /*
- * Spinning Wheel effect - LED animates around 1D strip (or each column in a 2D matrix), slows down and stops at random position
- *  Created by Bob Loeffler and claude.ai
- *  First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range).
- *     If value is 0, a random speed will be selected from the full range of values.
- *  Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
- *     If value is 0, a random time will be selected from the full range of values.
- *  Third slider (Spinner size) is for the number of pixels that make up the spinner.
- *  Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin.
- *  The first checkbox sets the color mode (color wheel or palette).
- *  The second checkbox sets "color per block" mode. Enabled means that each spinner block will be the same color no matter what its LED position is.
- *  The third checkbox enables synchronized restart (all spinners restart together instead of individually).
- *  aux0 stores the settings checksum to detect changes
- *  aux1 stores the color scale for performance
- */
+/  Spinning Wheel effect - LED animates around 1D strip (or each column in a 2D matrix), slows down and stops at random position
+*   Created by Bob Loeffler and claude.ai
+*   First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range).
+*     If value is 0, a random speed will be selected from the full range of values.
+*   Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
+*     If value is 0, a random time will be selected from the full range of values.
+*   Third slider (Spinner size) is for the number of pixels that make up the spinner.
+*   Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin.
+*   The first checkbox sets the color mode (color wheel or palette).
+*   The second checkbox sets "color per block" mode. Enabled means that each spinner block will be the same color no matter what its LED position is.
+*   The third checkbox enables synchronized restart (all spinners restart together instead of individually).
+*   aux0 stores the settings checksum to detect changes
+*   aux1 stores the color scale for performance
+*/
 
 static uint16_t mode_spinning_wheel(void) {
   if (SEGLEN < 1) return mode_static();
@@ -1007,10 +1007,10 @@ static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed 
 
 
 /*
- * Frosted Flame effect - 2D Flame/candle animation
- *  Created by seancoyle100 on soulmatelights.com and adapted to WLED by Bob Loeffler
- *  First slider (
- */
+/  Frosted Flame effect - 2D Flame/candle animation
+*   Created by seancoyle100 on soulmatelights.com and adapted to WLED by Bob Loeffler
+*   First slider (....
+*/
 int dist(int x1, int y1, int x2, int y2) {
   return sqrt16((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
 }
@@ -1066,11 +1066,17 @@ static const char _data_FX_MODE_2D_FROSTEDFLAME[] PROGMEM = "Frosted Flame@!,!,,
 
 
 /*
- * Magma effect - 2D
- * Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
- * Original idea by SottNick, remastered by kostyamat
- * Adapted to WLED by Bob Loeffler and claude.ai
- */
+/  Magma effect by Bob Loeffler 2026
+*   2D magma/lava animation
+*   Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
+*   Original idea by SottNick, remastered by kostyamat
+*   Adapted to WLED by Bob Loeffler and claude.ai
+*   First slider (speed) is for the speed of the moving magma and lava bombs.
+*   Second slider (intensity) is for the number of lava bombs (particles).  The max # is 1/2 the number of columns on the 2D matrix.
+*   Third slider (gravity) is for how high the lava bombs will go.
+*   The color palette is currently fixed, but may be user selectable in the future.
+*   aux0 stores the settings checksum to detect changes
+*/
 
 // Constants for magma effect
 #define MAGMA_DELTA_VALUE 8

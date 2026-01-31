@@ -314,7 +314,8 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 *   aux0 is the pattern offset for scrolling
 *   aux1 saves settings: check3 (1 bit), check3 (1 bit), text hash (4 bits) and pattern length (10 bits)
 *   The first slider (sx) selects the scrolling speed
-*   Checkbox1 selects the color mode
+*   The second slider selects the color mode (lower half selects color wheel, upper half selects color palettes)
+*   Checkbox1 displays all letters in a word with the same color
 *   Checkbox2 displays punctuation or not
 *   Checkbox3 displays the End-of-message code or not
 *   We get the text from the SEGMENT.name and convert it to morse code

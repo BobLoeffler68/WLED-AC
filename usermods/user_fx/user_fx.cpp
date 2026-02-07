@@ -1046,192 +1046,7 @@ static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed 
 
 
 /*
-/  Frosted Flame effect - 2D Flame/candle animation
-*   Created by seancoyle100 on soulmatelights.com and adapted to WLED by Bob Loeffler
-*   First slider (....
-*/
-int dist(int x1, int y1, int x2, int y2) {
-  return sqrt16((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-}
-
-int dist0(int x1, int y1, int x2, int y2) {
-  return sqrt16((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) / 2);
-}
-
-static uint16_t mode_2D_frostedflame(void) {
-  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static(); // not a 2D set-up
-  
-  const int cols = SEG_W;
-  const int rows = SEG_H;
-  
-  // Allocate per-segment storage
-  if (!SEGENV.allocateData(SEGLEN)) return mode_static();
-
-  // Initialize particles on first call
-  if (SEGENV.call == 0) {
-    SEGMENT.fill(BLACK);
-  }
-
-  SEGMENT.fadeToBlackBy(40); // Fade existing pixels (adjust 0-255)
-
-  uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 35, 5));
-  byte dX = map(perlin8(t, 0, t), 0, 255, 0, cols);
-  byte dY = map(perlin8(0, t), 0, 255, rows / 2, rows * 2);
-  for (byte x = 0; x < cols; x++) {
-    for (byte y = 0; y < rows; y++) {
-      int dista = dist0(x, y, cols / 3, rows / 10);
-      dista += dist0(x, y, cols - 1 - cols / 3, rows / 10);
-      dista += dist0(x, y, cols / 2, rows / 10);
-      dista += dist(x, y, dX, dY);
-      if (dista >= cols + rows) dista = 0;
-
-      byte brightness = map(dista * 2, 0, (cols + rows), 0, 255);
-  
-      // Apply threshold
-      if (brightness < 50) brightness = 0;
-      
-      if (brightness > 0) {
-        byte paletteIndex = map(brightness, 50, 255, 32, 232);
-        CRGB flameColor = ColorFromPalette(SEGPALETTE, paletteIndex, brightness, NOBLEND);
-        SEGMENT.setPixelColorXY(x, y, flameColor); // Direct set, no blending
-      }
-    }
-  }
-  SEGMENT.blur(SEGMENT.intensity>>2);
-
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_2D_FROSTEDFLAME[] PROGMEM = "Frosted Flame@!,!,,,,Color mode,,;!,!;!;2;pal=35,sx=192";
-
-
-/*
-/  Solar Flare effect by Bob Loeffler 2026
-*   2D magma/lava animation
-*   Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
-*   Original idea by SottNick, remastered by kostyamat
-*   Adapted to WLED by Bob Loeffler and claude.ai
-*   First slider (speed) is for the speed of the moving magma and lava bombs.
-*   Second slider (intensity) is for the number of lava bombs (particles).  The max # is 1/2 the number of columns on the 2D matrix.
-*   Third slider (gravity) is for how high the lava bombs will go.
-*   The color palette is currently fixed, but may be user selectable in the future.
-*   aux0 stores the settings checksum to detect changes
-*/
-static uint16_t mode_2D_solarflare(void) {
-  const uint16_t width = SEG_W;
-  const uint16_t height = SEG_H;
-  const uint8_t MAGMA_MAX_PARTICLES = width / 2;
-
-  // Noise parameters - adjust these for different surface/flares characteristics
-  // deltaValue: higher = more detailed/turbulent
-  // deltaHue: higher = taller flare structures
-  //const uint8_t solarDeltaValue = 8U;
-  //const uint8_t solarDeltaHue   = 32U;
-
-  // Allocate memory: particles (4 floats each) + 2 floats for noise counters + shiftHue cache
-  const uint16_t dataSize = (MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float) + height * sizeof(uint8_t);
-  if (!SEGENV.allocateData(dataSize)) return mode_static();
-  
-  float* particleData = reinterpret_cast<float*>(SEGENV.data);
-  float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];
-  float* ff_z = &particleData[MAGMA_MAX_PARTICLES * 4 + 1];
-  uint8_t* shiftHueCache = reinterpret_cast<uint8_t*>(&particleData[MAGMA_MAX_PARTICLES * 4 + 2]);
-  
-  // Check if settings changed
-  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1;
-  bool settingsChanged = (SEGENV.aux0 != settingssum);
-
-  if (SEGENV.call == 0 || settingsChanged) {
-    // Pre-calculate shift hue values
-    for (uint16_t j = 0; j < height; j++) {
-      shiftHueCache[j] = map(j, 0, height + height / 4, 255, 0);
-    }
-    
-    *ff_y = 0.0f;
-    *ff_z = 0.0f;
-    SEGENV.aux0 = settingssum;
-  }
-  
-  // Speed control
-  float speedfactor = SEGMENT.speed / 255.0f;
-  speedfactor = speedfactor * speedfactor * 1.5f;
-  if (speedfactor < 0.001f) speedfactor = 0.001f;
-  
-  // Flare intensity
-  uint8_t solarDeltaValue = map(SEGMENT.intensity, 0, 255, 2, 16);
-
-  // Flare height
-  uint8_t solarDeltaHue = map(SEGMENT.custom1, 0, 255, 12, 52);
-
-  // Fade background
-  SEGMENT.fadeToBlackBy(50);
-  
-  // Pre-calculate color palette lookup table (256 colors)
-  static CRGB colorPalette[256];
-  static bool paletteInitialized = false;
-  if (!paletteInitialized) {
-    for (uint16_t colorIndex = 0; colorIndex < 256; colorIndex++) {
-      if (colorIndex < 64) {
-        colorPalette[colorIndex] = CRGB(colorIndex * 4, 0, 0);
-      } else if (colorIndex < 128) {
-        uint8_t val = (colorIndex - 64) * 4;
-        colorPalette[colorIndex] = CRGB(255, val, 0);
-      } else if (colorIndex < 192) {
-        uint8_t val = (colorIndex - 128) * 4;
-        colorPalette[colorIndex] = CRGB(255, 128 + val / 2, 0);
-      } else {
-        uint8_t val = (colorIndex - 192) * 4;
-        colorPalette[colorIndex] = CRGB(255, 255, val);
-      }
-    }
-    paletteInitialized = true;
-  }
-  
-  // Draw noise-based magma background - optimized
-  uint16_t ff_y_int = (uint16_t)*ff_y;
-  uint16_t ff_z_int = (uint16_t)*ff_z;
-  
-  for (uint16_t i = 0; i < width; i++) {
-    for (uint16_t j = 0; j < height; j++) {
-      uint8_t noiseVal = perlin8(i * solarDeltaValue, (j + ff_y_int) * solarDeltaHue, ff_z_int);
-      uint8_t colorIndex = qsub8(noiseVal, shiftHueCache[j]);
-      SEGMENT.addPixelColorXY(i, height - 1 - j, colorPalette[colorIndex]);
-    }
-  }
-  
-  *ff_y += speedfactor * 2.0f;
-  *ff_z += speedfactor;
-  
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Intensity,Height;;;2;";
-
-
-/*
-/  Perlin Landscape
-*   Created by stepko as part of Stepko Land on soulmatelights.com and adapted to WLED by Bob Loeffler
-*   First slider (speed)
-*   It does not use a color palette, but may be user selectable in the future.
-*/
-static uint16_t mode_2D_perlinland(void) {
-  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static();  // not a 2D set-up
-  const uint16_t width = SEG_W;
-  const uint16_t height = SEG_H;
-  if (!SEGENV.allocateData(width * height)) return mode_static();  // allocation failed
-
-  uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 20, 1));
-  for (byte x = 0; x < width; x++) {
-    for (byte y = 0; y < height; y++) {
-      SEGMENT.setPixelColorXY(x, y, perlin8(x * 20, y * 20, t), perlin8(x * 20, y * 20 + t), perlin8(x * 20 + t, y * 20));
-    }
-  }
-
-  return FRAMETIME;
-}
-static const char _data_FX_MODE_2D_PERLINLAND[] PROGMEM = "Perlin Landscape@!;;;2;";
-
-
-/*
-/  Magma effect by Bob Loeffler 2026
+/  Magma effect
 *   2D magma/lava animation
 *   Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
 *   Original idea by SottNick, remastered by kostyamat
@@ -1247,8 +1062,8 @@ void drawMagma(const uint16_t width, const uint16_t height, float *ff_y, float *
   // Noise parameters - adjust these for different magma characteristics
   // deltaValue: higher = more detailed/turbulent magma
   // deltaHue: higher = taller magma structures
-  const uint8_t magmaDeltaValue = 12U;
-  const uint8_t magmaDeltaHue   = 10U;
+  constexpr uint8_t magmaDeltaValue = 12U;
+  constexpr uint8_t magmaDeltaHue   = 10U;
 
   uint16_t ff_y_int = (uint16_t)*ff_y;
   uint16_t ff_z_int = (uint16_t)*ff_z;
@@ -1430,6 +1245,132 @@ uint16_t mode_2D_magma(void) {
 static const char _data_FX_MODE_2D_MAGMA[] PROGMEM = "Magma@Flow rate,Magma height,Lava bombs,Gravity,,,Bombs in front;;!;2;ix=192,c2=32,o2=1,pal=35";
 
 
+/*
+/  Perlin Landscape
+*   Created by stepko as part of Stepko Land on soulmatelights.com and adapted to WLED by Bob Loeffler
+*   First slider (speed)
+*   It does not use a color palette, but may be user selectable in the future.
+*/
+static uint16_t mode_2D_perlinland(void) {
+  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static();  // not a 2D set-up
+  const uint16_t width = SEG_W;
+  const uint16_t height = SEG_H;
+  if (!SEGENV.allocateData(width * height)) return mode_static();  // allocation failed
+
+  uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 20, 1));
+  for (byte x = 0; x < width; x++) {
+    for (byte y = 0; y < height; y++) {
+      SEGMENT.setPixelColorXY(x, y, perlin8(x * 20, y * 20, t), perlin8(x * 20, y * 20 + t), perlin8(x * 20 + t, y * 20));
+    }
+  }
+
+  return FRAMETIME;
+}
+static const char _data_FX_MODE_2D_PERLINLAND[] PROGMEM = "Perlin Landscape@!;;;2;";
+
+
+/*
+/  Solar Flare effect
+*   2D magma/lava animation
+*   Adapted from FireLamp_JeeUI implementation (https://github.com/DmytroKorniienko/FireLamp_JeeUI/tree/dev)
+*   Original idea by SottNick, remastered by kostyamat
+*   Adapted to WLED by Bob Loeffler and claude.ai
+*   First slider (speed) is for the speed of the moving magma and lava bombs.
+*   Second slider (intensity) is for the number of lava bombs (particles).  The max # is 1/2 the number of columns on the 2D matrix.
+*   Third slider (gravity) is for how high the lava bombs will go.
+*   The color palette is currently fixed, but may be user selectable in the future.
+*   aux0 stores the settings checksum to detect changes
+*/
+static uint16_t mode_2D_solarflare(void) {
+  const uint16_t width = SEG_W;
+  const uint16_t height = SEG_H;
+  const uint8_t MAGMA_MAX_PARTICLES = width / 2;
+
+  // Noise parameters - adjust these for different surface/flares characteristics
+  // deltaValue: higher = more detailed/turbulent
+  // deltaHue: higher = taller flare structures
+  //const uint8_t solarDeltaValue = 8U;
+  //const uint8_t solarDeltaHue   = 32U;
+
+  // Allocate memory: particles (4 floats each) + 2 floats for noise counters + shiftHue cache
+  const uint16_t dataSize = (MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float) + height * sizeof(uint8_t);
+  if (!SEGENV.allocateData(dataSize)) return mode_static();
+  
+  float* particleData = reinterpret_cast<float*>(SEGENV.data);
+  float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];
+  float* ff_z = &particleData[MAGMA_MAX_PARTICLES * 4 + 1];
+  uint8_t* shiftHueCache = reinterpret_cast<uint8_t*>(&particleData[MAGMA_MAX_PARTICLES * 4 + 2]);
+  
+  // Check if settings changed
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1;
+  bool settingsChanged = (SEGENV.aux0 != settingssum);
+
+  if (SEGENV.call == 0 || settingsChanged) {
+    // Pre-calculate shift hue values
+    for (uint16_t j = 0; j < height; j++) {
+      shiftHueCache[j] = map(j, 0, height + height / 4, 255, 0);
+    }
+    
+    *ff_y = 0.0f;
+    *ff_z = 0.0f;
+    SEGENV.aux0 = settingssum;
+  }
+  
+  // Speed control
+  float speedfactor = SEGMENT.speed / 255.0f;
+  speedfactor = speedfactor * speedfactor * 1.5f;
+  if (speedfactor < 0.001f) speedfactor = 0.001f;
+  
+  // Flare intensity
+  uint8_t solarDeltaValue = map(SEGMENT.intensity, 0, 255, 2, 16);
+
+  // Flare height
+  uint8_t solarDeltaHue = map(SEGMENT.custom1, 0, 255, 12, 52);
+
+  // Fade background
+  SEGMENT.fadeToBlackBy(50);
+  
+  // Pre-calculate color palette lookup table (256 colors)
+  static CRGB colorPalette[256];
+  static bool paletteInitialized = false;
+  if (!paletteInitialized) {
+    for (uint16_t colorIndex = 0; colorIndex < 256; colorIndex++) {
+      if (colorIndex < 64) {
+        colorPalette[colorIndex] = CRGB(colorIndex * 4, 0, 0);
+      } else if (colorIndex < 128) {
+        uint8_t val = (colorIndex - 64) * 4;
+        colorPalette[colorIndex] = CRGB(255, val, 0);
+      } else if (colorIndex < 192) {
+        uint8_t val = (colorIndex - 128) * 4;
+        colorPalette[colorIndex] = CRGB(255, 128 + val / 2, 0);
+      } else {
+        uint8_t val = (colorIndex - 192) * 4;
+        colorPalette[colorIndex] = CRGB(255, 255, val);
+      }
+    }
+    paletteInitialized = true;
+  }
+  
+  // Draw noise-based magma background - optimized
+  uint16_t ff_y_int = (uint16_t)*ff_y;
+  uint16_t ff_z_int = (uint16_t)*ff_z;
+  
+  for (uint16_t i = 0; i < width; i++) {
+    for (uint16_t j = 0; j < height; j++) {
+      uint8_t noiseVal = perlin8(i * solarDeltaValue, (j + ff_y_int) * solarDeltaHue, ff_z_int);
+      uint8_t colorIndex = qsub8(noiseVal, shiftHueCache[j]);
+      SEGMENT.addPixelColorXY(i, height - 1 - j, colorPalette[colorIndex]);
+    }
+  }
+  
+  *ff_y += speedfactor * 2.0f;
+  *ff_z += speedfactor;
+  
+  return FRAMETIME;
+}
+static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Intensity,Height;;;2;";
+
+
 
 /////////////////////
 //  UserMod Class  //
@@ -1444,10 +1385,9 @@ class UserFxUsermod : public Usermod {
     strip.addEffect(255, &mode_morsecode, _data_FX_MODE_MORSECODE);
     strip.addEffect(255, &mode_2D_lavalamp, _data_FX_MODE_2D_LAVALAMP);
     strip.addEffect(255, &mode_spinning_wheel, _data_FX_MODE_SPINNINGWHEEL);
-    strip.addEffect(255, &mode_2D_frostedflame, _data_FX_MODE_2D_FROSTEDFLAME);
-    strip.addEffect(255, &mode_2D_solarflare, _data_FX_MODE_2D_SOLARFLARE);
-    strip.addEffect(255, &mode_2D_perlinland, _data_FX_MODE_2D_PERLINLAND);
     strip.addEffect(255, &mode_2D_magma, _data_FX_MODE_2D_MAGMA);
+    strip.addEffect(255, &mode_2D_perlinland, _data_FX_MODE_2D_PERLINLAND);
+    strip.addEffect(255, &mode_2D_solarflare, _data_FX_MODE_2D_SOLARFLARE);
 
     ////////////////////////////////////////
     //  add your effect function(s) here  //

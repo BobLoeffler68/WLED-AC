@@ -579,15 +579,15 @@ typedef struct LavaParticle {
   float vx, vy;         // Velocity
   float size;           // Blob size
   uint8_t hue;          // Color
-  uint8_t life;         // Lifetime/opacity
+  uint8_t life;         // Lifetime/opacity - currently set at 255 below. Possibly will allow diff values in the future.
   bool active;          // will not be displayed if false
 } LavaParticle;
 
 static uint16_t mode_2D_lavalamp(void) {
   if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static(); // not a 2D set-up
   
-  const uint16_t cols = SEGMENT.virtualWidth();
-  const uint16_t rows = SEGMENT.virtualHeight();
+  const uint16_t cols = SEG_W;
+  const uint16_t rows = SEG_H;
   
   // Allocate per-segment storage
   constexpr size_t MAX_LAVA_PARTICLES = 35;  // increasing this value could cause slowness for large matrices
@@ -600,11 +600,7 @@ static uint16_t mode_2D_lavalamp(void) {
       lavaParticles[i].active = false;
     }
   }
-  
-  // Speed control (slower = more lava lamp like)
-  uint8_t speed = SEGMENT.speed >> 3; // 0-31 range
-  if (speed < 1) speed = 1;
-  
+ 
   // Intensity controls number of active particles
   uint8_t numParticles = (SEGMENT.intensity >> 3) + 3; // 3-34 particles (fewer blobs)
   if (numParticles > MAX_LAVA_PARTICLES) numParticles = MAX_LAVA_PARTICLES;
@@ -653,10 +649,12 @@ static uint16_t mode_2D_lavalamp(void) {
       float maxSize = cols * 0.4f;  // Maximum 40% of width
       float sizeRange = (maxSize - minSize) * (sizeControl / 255.0f);
       int rangeInt = max(1, (int)(sizeRange));
+      constexpr float MAX_BLOB_RADIUS = 20.0f; // cap to prevent frame rate drops on large matrices
       lavaParticles[i].size = minSize + (float)random16(rangeInt);
+      if (lavaParticles[i].size > MAX_BLOB_RADIUS) lavaParticles[i].size = MAX_BLOB_RADIUS;
 
       lavaParticles[i].hue = hw_random8();
-      lavaParticles[i].life = 255;
+      lavaParticles[i].life = 255;  // TODO: currently doesn't change, but might change this behavior in the future
       lavaParticles[i].active = true;
       break;
     }
@@ -715,8 +713,8 @@ static uint16_t mode_2D_lavalamp(void) {
     p->vx *= 0.92f; // Stronger damping for less drift
     
     // Bounce off sides (don't affect vertical velocity)
-    if (p->x <= 0) {
-      p->x = 1;
+    if (p->x < 0) {
+      p->x = 0;
       p->vx = abs(p->vx); // Just reverse horizontal, don't reduce
     }
     if (p->x >= cols) {
@@ -1351,9 +1349,14 @@ static uint16_t mode_2D_solarflare(void) {
   
   for (uint16_t i = 0; i < width; i++) {
     for (uint16_t j = 0; j < height; j++) {
-      uint8_t noiseVal = perlin8(i * solarDeltaValue, (j + ff_y_int) * solarDeltaHue, ff_z_int);
-      uint8_t colorIndex = qsub8(noiseVal, shiftHueCache[j]);
-      SEGMENT.addPixelColorXY(i, height - 1 - j, colorPalette[colorIndex]);
+      uint8_t noise = perlin8(i * solarDeltaValue, (j + ff_y_int) * solarDeltaHue, ff_z_int);
+      uint8_t colorIndex = qsub8(noise, shiftHueCache[j]);
+      if (SEGMENT.check1)
+        SEGMENT.addPixelColorXY(i, height - 1 - j, colorPalette[colorIndex]);
+      else {
+        CRGB col = SEGMENT.color_from_palette(colorIndex, false, PALETTE_SOLID_WRAP, 0);  // Get color from palette
+        SEGMENT.addPixelColorXY(i, height - 1 - j, col);  // magma rises from bottom of display
+      }
     }
   }
   
@@ -1362,7 +1365,7 @@ static uint16_t mode_2D_solarflare(void) {
   
   return FRAMETIME;
 }
-static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Intensity,Height;;;2;";
+static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Intensity,Height,,,Internal Palette;;!;2;";
 
 
 

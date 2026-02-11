@@ -192,13 +192,13 @@ static void renderAntPixel(int pixelIndex, int pixelOffset, int antSize, const A
   }
 }
 
-static uint16_t mode_ants(void) {
-  if (SEGLEN <= 1) return mode_static();
+static void mode_ants(void) {
+  if (SEGLEN <= 1) FX_FALLBACK_STATIC;
 
   // Allocate memory for ant data
   uint32_t backgroundColor = SEGCOLOR(1);
   unsigned dataSize = sizeof(Ant) * MAX_ANTS;
-  if (!SEGENV.allocateData(dataSize)) return mode_static();  // Allocation failed
+  if (!SEGENV.allocateData(dataSize)) FX_FALLBACK_STATIC;  // Allocation failed
 
   Ant* ants = reinterpret_cast<Ant*>(SEGENV.data);
 
@@ -306,7 +306,6 @@ static uint16_t mode_ants(void) {
   }
 
   SEGMENT.blur(SEGMENT.custom2>>1);
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant size,Blur,,Gathering food,Smear,Pass by;!,!,!;!;1;sx=192,ix=255,c1=32,c2=0,o1=1,o3=1";
 
@@ -315,7 +314,7 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 /  Scrolling Morse Code by Bob Loeffler
 *   Adapted from code by automaticaddison.com and then optimized by claude.ai
 *   aux0 is the pattern offset for scrolling
-*   aux1 saves settings: check3 (1 bit), check3 (1 bit), text hash (4 bits) and pattern length (10 bits)
+*   aux1 saves settings: check2 (1 bit), check3 (1 bit), text hash (4 bits) and pattern length (10 bits)
 *   The first slider (sx) selects the scrolling speed
 *   The second slider selects the color mode (lower half selects color wheel, upper half selects color palettes)
 *   Checkbox1 displays all letters in a word with the same color
@@ -383,8 +382,8 @@ void build_morsecode_pattern(const char *morse_code, uint8_t *pattern, uint8_t *
   index++;
 }
 
-static uint16_t mode_morsecode(void) {
-  if (SEGLEN < 1) return mode_static();
+static void mode_morsecode(void) {
+  if (SEGLEN < 1) FX_FALLBACK_STATIC;
   
   // A-Z in Morse Code
   static const char * letters[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--",
@@ -421,12 +420,12 @@ static uint16_t mode_morsecode(void) {
     *p = toupper(*p);
   }
 
-  // Allocate per-segment storage for pattern (1024 bits = 128 bytes) + word index array (1024 bytes) + word count (1 byte)
-  constexpr size_t MORSECODE_MAX_PATTERN_SIZE = 1024;
-  constexpr size_t MORSECODE_PATTERN_BYTES = MORSECODE_MAX_PATTERN_SIZE / 8; // 128 bytes
+  // Allocate per-segment storage for pattern (1023 bits = 127 bytes) + word index array (1024 bytes) + word count (1 byte)
+  constexpr size_t MORSECODE_MAX_PATTERN_SIZE = 1023;
+  constexpr size_t MORSECODE_PATTERN_BYTES = MORSECODE_MAX_PATTERN_SIZE / 8; // 127 bytes
   constexpr size_t MORSECODE_WORD_INDEX_BYTES = MORSECODE_MAX_PATTERN_SIZE; // 1 byte per bit position
   constexpr size_t MORSECODE_WORD_COUNT_BYTES = 1; // 1 byte for word count
-  if (!SEGENV.allocateData(MORSECODE_PATTERN_BYTES + MORSECODE_WORD_INDEX_BYTES + MORSECODE_WORD_COUNT_BYTES)) return mode_static();
+  if (!SEGENV.allocateData(MORSECODE_PATTERN_BYTES + MORSECODE_WORD_INDEX_BYTES + MORSECODE_WORD_COUNT_BYTES)) FX_FALLBACK_STATIC;
   uint8_t* morsecodePattern = reinterpret_cast<uint8_t*>(SEGENV.data);
   uint8_t* wordIndexArray = reinterpret_cast<uint8_t*>(SEGENV.data + MORSECODE_PATTERN_BYTES);
   uint8_t* wordCountPtr = reinterpret_cast<uint8_t*>(SEGENV.data + MORSECODE_PATTERN_BYTES + MORSECODE_WORD_INDEX_BYTES);
@@ -517,7 +516,7 @@ static uint16_t mode_morsecode(void) {
   // if pattern is empty for some reason, display black background only
   if (patternLength == 0) {
     SEGMENT.fill(BLACK);
-    return FRAMETIME;
+    return;
   }
 
   // Update offset to make the morse code scroll
@@ -559,7 +558,6 @@ static uint16_t mode_morsecode(void) {
       }
     }
   }
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color mode,Color by Word,Punctuation,EndOfMessage;;!;1;sx=192,c3=8,o1=1,o2=1";
 
@@ -586,15 +584,15 @@ typedef struct LavaParticle {
   bool active;          // will not be displayed if false
 } LavaParticle;
 
-static uint16_t mode_2D_lavalamp(void) {
-  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static(); // not a 2D set-up
+static void  mode_2D_lavalamp(void) {
+  if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC; // not a 2D set-up
   
   const uint16_t cols = SEG_W;
   const uint16_t rows = SEG_H;
   
   // Allocate per-segment storage
   constexpr size_t MAX_LAVA_PARTICLES = 35;  // increasing this value could cause slowness for large matrices
-  if (!SEGENV.allocateData(sizeof(LavaParticle) * MAX_LAVA_PARTICLES)) return mode_static();
+  if (!SEGENV.allocateData(sizeof(LavaParticle) * MAX_LAVA_PARTICLES)) FX_FALLBACK_STATIC;
   LavaParticle* lavaParticles = reinterpret_cast<LavaParticle*>(SEGENV.data);
 
   // Initialize particles on first call
@@ -794,8 +792,6 @@ static uint16_t mode_2D_lavalamp(void) {
       }
     }
   }
-
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of blobs,Blob size,,,Color mode,Attract;;!;2;ix=64,o2=1,pal=47";
 
@@ -816,15 +812,15 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 *   aux1 stores the color scale for performance
 */
 
-static uint16_t mode_spinning_wheel(void) {
-  if (SEGLEN < 1) return mode_static();
+static void mode_spinning_wheel(void) {
+  if (SEGLEN < 1) FX_FALLBACK_STATIC;
   
   unsigned strips = SEGMENT.nrOfVStrips();
-  if (strips == 0) return mode_static();
+  if (strips == 0) FX_FALLBACK_STATIC;
 
   constexpr unsigned stateVarsPerStrip = 8;
   unsigned dataSize = sizeof(uint32_t) * stateVarsPerStrip;
-  if (!SEGENV.allocateData(dataSize * strips)) return mode_static();
+  if (!SEGENV.allocateData(dataSize * strips)) FX_FALLBACK_STATIC;
   uint32_t* state = reinterpret_cast<uint32_t*>(SEGENV.data);
   // state[0] = current position (fixed point: upper 16 bits = position, lower 16 bits = fraction)
   // state[1] = velocity (fixed point: pixels per frame * 65536)
@@ -1040,8 +1036,6 @@ static uint16_t mode_spinning_wheel(void) {
       virtualStrip::runStrip(stripNr, &state[stripNr * stateVarsPerStrip], settingsChanged, allReadyToRestart);
     }
   }
-
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed (0=random),Slowdown (0=random),Spinner size,,Spin delay,Color mode,Color per block,Sync restart;!,!;!;;m12=1,c1=1,c3=8";
 
@@ -1144,17 +1138,17 @@ void drawLavaBombs(const uint16_t width, const uint16_t height, float *particleD
   }
 } 
 
-uint16_t mode_2D_magma(void) {
-  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static();  // not a 2D set-up
+static void mode_2D_magma(void) {
+  if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC;  // not a 2D set-up
   const uint16_t width = SEG_W;
   const uint16_t height = SEG_H;
   const uint8_t MAGMA_MAX_PARTICLES = width / 2;
-  if (MAGMA_MAX_PARTICLES < 2) return mode_static();  // matrix too narrow for lava bombs
+  if (MAGMA_MAX_PARTICLES < 2) FX_FALLBACK_STATIC;  // matrix too narrow for lava bombs
   constexpr size_t SETTINGS_SUM_BYTES = 4; // 4 bytes for settings sum
 
   // Allocate memory: particles (4 floats each) + 2 floats for noise counters + shiftHue cache + settingsSum
   const uint16_t dataSize = (MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float) + height * sizeof(uint8_t) + SETTINGS_SUM_BYTES;
-  if (!SEGENV.allocateData(dataSize)) return mode_static();  // allocation failed
+  if (!SEGENV.allocateData(dataSize)) FX_FALLBACK_STATIC;  // allocation failed
 
   float* particleData = reinterpret_cast<float*>(SEGENV.data);
   float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];
@@ -1203,7 +1197,7 @@ uint16_t mode_2D_magma(void) {
     *settingsSumPtr = settingssum;
   }
 
-  if (!shiftHue) return FRAMETIME;   // safety check
+  if (!shiftHue) return;   // safety check
 
   // Speed control
   float speedfactor = SEGMENT.speed / 255.0f;
@@ -1234,8 +1228,6 @@ uint16_t mode_2D_magma(void) {
   *ff_z += speedfactor;
 
   SEGENV.step++;
-
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_2D_MAGMA[] PROGMEM = "Magma@Flow rate,Magma height,Lava bombs,Gravity,,,Bombs in front;;!;2;ix=192,c2=32,o2=1,pal=35";
 
@@ -1246,11 +1238,11 @@ static const char _data_FX_MODE_2D_MAGMA[] PROGMEM = "Magma@Flow rate,Magma heig
 *   First slider (speed)
 *   It does not use a color palette, but may be user selectable in the future.
 */
-static uint16_t mode_2D_perlinland(void) {
-  if (!strip.isMatrix || !SEGMENT.is2D()) return mode_static();  // not a 2D set-up
+static void mode_2D_perlinland(void) {
+  if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC;  // not a 2D set-up
   const uint16_t width = SEG_W;
   const uint16_t height = SEG_H;
-  if (!SEGENV.allocateData(width * height)) return mode_static();  // allocation failed
+  if (!SEGENV.allocateData(width * height)) FX_FALLBACK_STATIC;  // allocation failed
 
   uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 20, 1));
   for (byte x = 0; x < width; x++) {
@@ -1258,8 +1250,6 @@ static uint16_t mode_2D_perlinland(void) {
       SEGMENT.setPixelColorXY(x, y, perlin8(x * 20, y * 20, t), perlin8(x * 20, y * 20 + t), perlin8(x * 20 + t, y * 20));
     }
   }
-
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_2D_PERLINLAND[] PROGMEM = "Perlin Landscape@!;;;2;";
 
@@ -1276,7 +1266,7 @@ static const char _data_FX_MODE_2D_PERLINLAND[] PROGMEM = "Perlin Landscape@!;;;
 *   The color palette is currently fixed, but may be user selectable in the future.
 *   aux0 stores the settings checksum to detect changes
 */
-static uint16_t mode_2D_solarflare(void) {
+static void mode_2D_solarflare(void) {
   const uint16_t width = SEG_W;
   const uint16_t height = SEG_H;
   const uint8_t MAGMA_MAX_PARTICLES = width / 2;
@@ -1289,7 +1279,7 @@ static uint16_t mode_2D_solarflare(void) {
 
   // Allocate memory: particles (4 floats each) + 2 floats for noise counters + shiftHue cache
   const uint16_t dataSize = (MAGMA_MAX_PARTICLES * 4 + 2) * sizeof(float) + height * sizeof(uint8_t);
-  if (!SEGENV.allocateData(dataSize)) return mode_static();
+  if (!SEGENV.allocateData(dataSize)) FX_FALLBACK_STATIC;
   
   float* particleData = reinterpret_cast<float*>(SEGENV.data);
   float* ff_y = &particleData[MAGMA_MAX_PARTICLES * 4];
@@ -1365,8 +1355,6 @@ static uint16_t mode_2D_solarflare(void) {
   
   *ff_y += speedfactor * 2.0f;
   *ff_z += speedfactor;
-  
-  return FRAMETIME;
 }
 static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Intensity,Height,,,Internal Palette;;!;2;";
 

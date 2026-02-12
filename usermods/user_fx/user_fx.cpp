@@ -131,7 +131,7 @@ static const char _data_FX_MODE_DIFFUSIONFIRE[] PROGMEM = "Diffusion Fire@!,Spar
 *     We will switch directions when they get to the beginning or end of the segment when gathering food.
 *     When gathering food, the Pass By option will automatically be enabled so they can drop off their food easier (and look for more food).
 *   Checkbox2 is for Smear mode (enabled is smear pixel colors, disabled is no smearing)
-*   Checkbox3 is for whether the ants will bump into each other (disabled) or just pass by each other (enabled). Ignored if Gathering Food option is enabled.
+*   Checkbox3 is for whether the ants will bump into each other (disabled) or just pass by each other (enabled)
 */
 
 // Ant structure representing each ant's state
@@ -311,7 +311,7 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 
 
 /*
-/  Scrolling Morse Code by Bob Loeffler
+/  Morse Code by Bob Loeffler
 *   Adapted from code by automaticaddison.com and then optimized by claude.ai
 *   aux0 is the pattern offset for scrolling
 *   aux1 saves settings: check2 (1 bit), check3 (1 bit), text hash (4 bits) and pattern length (10 bits)
@@ -335,7 +335,7 @@ static const char _data_FX_MODE_ANTS[] PROGMEM = "Ants@Ant speed,# of ants,Ant s
 #define GET_BIT8(arr, i) (((arr)[(i) >> 3] & (1 << ((i) & 7))) != 0)
 
 // Build morse code pattern into a buffer
-void build_morsecode_pattern(const char *morse_code, uint8_t *pattern, uint8_t *wordIndex, uint16_t &index, uint8_t currentWord, int maxSize) {
+static void build_morsecode_pattern(const char *morse_code, uint8_t *pattern, uint8_t *wordIndex, uint16_t &index, uint8_t currentWord, int maxSize) {
   const char *c = morse_code;
   
   // Build the dots and dashes into pattern array
@@ -422,7 +422,7 @@ static void mode_morsecode(void) {
 
   // Allocate per-segment storage for pattern (1023 bits = 127 bytes) + word index array (1024 bytes) + word count (1 byte)
   constexpr size_t MORSECODE_MAX_PATTERN_SIZE = 1023;
-  constexpr size_t MORSECODE_PATTERN_BYTES = MORSECODE_MAX_PATTERN_SIZE / 8; // 127 bytes
+  constexpr size_t MORSECODE_PATTERN_BYTES = (MORSECODE_MAX_PATTERN_SIZE + 7) / 8; // 128 bytes
   constexpr size_t MORSECODE_WORD_INDEX_BYTES = MORSECODE_MAX_PATTERN_SIZE; // 1 byte per bit position
   constexpr size_t MORSECODE_WORD_COUNT_BYTES = 1; // 1 byte for word count
   if (!SEGENV.allocateData(MORSECODE_PATTERN_BYTES + MORSECODE_WORD_INDEX_BYTES + MORSECODE_WORD_COUNT_BYTES)) FX_FALLBACK_STATIC;
@@ -580,11 +580,10 @@ typedef struct LavaParticle {
   float vx, vy;         // Velocity
   float size;           // Blob size
   uint8_t hue;          // Color
-  uint8_t life;         // Lifetime/opacity - currently set at 255 below. Possibly will allow diff values in the future.
   bool active;          // will not be displayed if false
 } LavaParticle;
 
-static void  mode_2D_lavalamp(void) {
+static void mode_2D_lavalamp(void) {
   if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC; // not a 2D set-up
   
   const uint16_t cols = SEG_W;
@@ -602,12 +601,15 @@ static void  mode_2D_lavalamp(void) {
     }
   }
  
+  // Track size slider changes
+  uint8_t lastSizeControl = SEGENV.aux0;
+
   // Intensity controls number of active particles
   uint8_t numParticles = (SEGMENT.intensity >> 3) + 3; // 3-34 particles (fewer blobs)
   if (numParticles > MAX_LAVA_PARTICLES) numParticles = MAX_LAVA_PARTICLES;
   
   // Track size slider changes
-  uint8_t lastSizeControl = SEGENV.aux0;
+//  uint8_t lastSizeControl = SEGENV.aux0;
   uint8_t currentSizeControl = SEGMENT.custom1;
   bool sizeChanged = (currentSizeControl != lastSizeControl);
 
@@ -655,7 +657,6 @@ static void  mode_2D_lavalamp(void) {
       if (lavaParticles[i].size > MAX_BLOB_RADIUS) lavaParticles[i].size = MAX_BLOB_RADIUS;
 
       lavaParticles[i].hue = hw_random8();
-      lavaParticles[i].life = 255;  // TODO: currently doesn't change, but might change this behavior in the future
       lavaParticles[i].active = true;
       break;
     }
@@ -722,7 +723,49 @@ static void  mode_2D_lavalamp(void) {
       p->x = cols - 1;
       p->vx = -abs(p->vx); // Just reverse horizontal, don't reduce
     }
+
+
+    // Adjust rise/fall velocity depending on distance from heat source (at bottom)
+    // In top 1/3rd of rows, slow down the rise rate
+    if (p->y < rows * .33f) {
+      if (p->vy <= 0) {  // if going up
+        // Add random speed amount when rising
+        //p->vy += 1.0f / 100.0f; // Add to make LESS negative (slower up)
+        p->vy += 0.03f; // Add to make LESS negative (slower up)
+        // Ensure minimum upward velocity
+        if (p->vy > -0.10f) p->vy = -0.10f;
+      }
+    }
+
+    // In middle 1/3rd of rows, slow down the rise or fall rate
+    if (p->y <= rows * .67f && p->y >= rows * .33f) {
+      if (p->vy > 0) {  // if going down
+        // Subtract random speed amount when falling
+        //p->vy -= random16(3) / 100.0f; // Subtract to make LESS positive (slower down)
+        p->vy -= 0.01f; // Subtract to make LESS positive (slower down)
+        // Ensure minimum downward velocity
+        if (p->vy < 0.06f) p->vy = 0.06f;
+      } else if (p->vy <= 0) {  // if going up
+        // Add random speed amount when rising
+        //p->vy += random16(3) / 100.0f; // Add to make LESS negative (slower up)
+        p->vy += 0.01f; // Add to make LESS negative (slower up)
+        // Ensure minimum upward velocity
+        if (p->vy > -0.10f) p->vy = -0.10f;
+      }
+    }
     
+    // In bottom 1/3rd of rows, slow down the fall rate
+    if (p->y > rows * .67f) {
+      if (p->vy >= 0) {  // if going down
+        // Subtract random speed amount when falling
+        //p->vy -= 1.0f / 100.0f; // Subtract to make LESS positive (slower down)
+        p->vy -= 0.03f; // Subtract to make LESS positive (slower down)
+        // Ensure minimum downward velocity
+        if (p->vy < 0.06f) p->vy = 0.06f;
+      }
+    }
+
+
     // Boundary handling with proper reversal
     // When reaching TOP (y=0 area), reverse to fall back down
     if (p->y <= 0.5f * p->size) {
@@ -746,9 +789,6 @@ static void  mode_2D_lavalamp(void) {
       }
     }
 
-    // Keep blobs alive forever (no fading) - maybe change in the future?
-    p->life = 255;
-    
     // Get color
     uint32_t color;
     if (SEGMENT.check1) {
@@ -758,10 +798,10 @@ static void  mode_2D_lavalamp(void) {
     }
     
     // Extract RGB and apply life/opacity
-    uint8_t w = (W(color) * p->life) >> 8;
-    uint8_t r = (R(color) * p->life) >> 8;
-    uint8_t g = (G(color) * p->life) >> 8;
-    uint8_t b = (B(color) * p->life) >> 8;
+    uint8_t w = (W(color) * 255) >> 8;
+    uint8_t r = (R(color) * 255) >> 8;
+    uint8_t g = (G(color) * 255) >> 8;
+    uint8_t b = (B(color) * 255) >> 8;
 
     // Draw blob with soft edges (gaussian-like falloff)
     float sizeSq = p->size * p->size;
@@ -797,20 +837,20 @@ static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of bl
 
 
 /*
-/  Spinning Wheel effect - LED animates around 1D strip (or each column in a 2D matrix), slows down and stops at random position
-*   Created by Bob Loeffler and claude.ai
-*   First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range).
-*     If value is 0, a random speed will be selected from the full range of values.
-*   Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
-*     If value is 0, a random time will be selected from the full range of values.
-*   Third slider (Spinner size) is for the number of pixels that make up the spinner.
-*   Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin.
-*   The first checkbox sets the color mode (color wheel or palette).
-*   The second checkbox sets "color per block" mode. Enabled means that each spinner block will be the same color no matter what its LED position is.
-*   The third checkbox enables synchronized restart (all spinners restart together instead of individually).
-*   aux0 stores the settings checksum to detect changes
-*   aux1 stores the color scale for performance
-*/
+ * Spinning Wheel effect - LED animates around 1D strip (or each column in a 2D matrix), slows down and stops at random position
+ *  Created by Bob Loeffler and claude.ai
+ *  First slider (Spin speed) is for the speed of the moving/spinning LED (random number within a narrow speed range).
+ *     If value is 0, a random speed will be selected from the full range of values.
+ *  Second slider (Spin slowdown start time) is for how long before the slowdown phase starts (random number within a narrow time range).
+ *     If value is 0, a random time will be selected from the full range of values.
+ *  Third slider (Spinner size) is for the number of pixels that make up the spinner.
+ *  Fourth slider (Spin delay) is for how long it takes for the LED to start spinning again after the previous spin.
+ *  The first checkbox sets the color mode (color wheel or palette).
+ *  The second checkbox sets "color per block" mode. Enabled means that each spinner block will be the same color no matter what its LED position is.
+ *  The third checkbox enables synchronized restart (all spinners restart together instead of individually).
+ *  aux0 stores the settings checksum to detect changes
+ *  aux1 stores the color scale for performance
+ */
 
 static void mode_spinning_wheel(void) {
   if (SEGLEN < 1) FX_FALLBACK_STATIC;
@@ -1054,7 +1094,7 @@ static const char _data_FX_MODE_SPINNINGWHEEL[] PROGMEM = "Spinning Wheel@Speed 
 */
 
 // Draw the magma
-void drawMagma(const uint16_t width, const uint16_t height, float *ff_y, float *ff_z, uint8_t *shiftHue) {
+static void drawMagma(const uint16_t width, const uint16_t height, float *ff_y, float *ff_z, uint8_t *shiftHue) {
   // Noise parameters - adjust these for different magma characteristics
   // deltaValue: higher = more detailed/turbulent magma
   // deltaHue: higher = taller magma structures
@@ -1067,7 +1107,7 @@ void drawMagma(const uint16_t width, const uint16_t height, float *ff_y, float *
   for (uint16_t i = 0; i < width; i++) {
     for (uint16_t j = 0; j < height; j++) {
       // Generate Perlin noise value (0-255)
-      uint8_t noise = perlin8(i * magmaDeltaValue, (j + ff_y_int + random8(2)) * magmaDeltaHue, ff_z_int);
+      uint8_t noise = perlin8(i * magmaDeltaValue, (j + ff_y_int + hw_random8(2)) * magmaDeltaHue, ff_z_int);
       uint8_t paletteIndex = qsub8(noise, shiftHue[j]);  // Apply the vertical fade gradient
       CRGB col = SEGMENT.color_from_palette(paletteIndex, false, PALETTE_SOLID_WRAP, 0);  // Get color from palette
       SEGMENT.addPixelColorXY(i, height - 1 - j, col);  // magma rises from bottom of display
@@ -1076,7 +1116,7 @@ void drawMagma(const uint16_t width, const uint16_t height, float *ff_y, float *
 }
 
 // Move and draw lava bombs (particles)
-void drawLavaBombs(const uint16_t width, const uint16_t height, float *particleData, float gravity, uint8_t particleCount) {
+static void drawLavaBombs(const uint16_t width, const uint16_t height, float *particleData, float gravity, uint8_t particleCount) {
   for (uint16_t i = 0; i < particleCount; i++) {
     uint16_t idx = i * 4;
     
@@ -1108,8 +1148,6 @@ void drawLavaBombs(const uint16_t width, const uint16_t height, float *particleD
     int16_t yi = (int16_t)posY;
     
     if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
-      float velocityY = particleData[idx + 3];
-
       // Get a random color from the current palette
       uint8_t randomIndex = hw_random8(64, 128);
       CRGB pcolor = ColorFromPaletteWLED(SEGPALETTE, randomIndex, 255, LINEARBLEND);
@@ -1197,7 +1235,7 @@ static void mode_2D_magma(void) {
     *settingsSumPtr = settingssum;
   }
 
-  if (!shiftHue) return;   // safety check
+  if (!shiftHue) FX_FALLBACK_STATIC;   // safety check
 
   // Speed control
   float speedfactor = SEGMENT.speed / 255.0f;

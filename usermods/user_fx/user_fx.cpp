@@ -588,9 +588,10 @@ static void mode_2D_lavalamp(void) {
   
   const uint16_t cols = SEG_W;
   const uint16_t rows = SEG_H;
-  
+  constexpr float MAX_BLOB_RADIUS = 20.0f;  // cap to prevent frame rate drops on large matrices
+  constexpr size_t MAX_LAVA_PARTICLES = 34;  // increasing this value could cause slowness for large matrices
+
   // Allocate per-segment storage
-  constexpr size_t MAX_LAVA_PARTICLES = 35;  // increasing this value could cause slowness for large matrices
   if (!SEGENV.allocateData(sizeof(LavaParticle) * MAX_LAVA_PARTICLES)) FX_FALLBACK_STATIC;
   LavaParticle* lavaParticles = reinterpret_cast<LavaParticle*>(SEGENV.data);
 
@@ -598,62 +599,52 @@ static void mode_2D_lavalamp(void) {
   if (SEGENV.call == 0) {
     for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
       lavaParticles[i].active = false;
+      SEGENV.step = 0;  // for debugging only
     }
   }
- 
-  // Track size slider changes
-  uint8_t lastSizeControl = SEGENV.aux0;
 
-  // Intensity controls number of active particles
-  uint8_t numParticles = (SEGMENT.intensity >> 3) + 3; // 3-34 particles (fewer blobs)
-  if (numParticles > MAX_LAVA_PARTICLES) numParticles = MAX_LAVA_PARTICLES;
-  
-  // Track size slider changes
-//  uint8_t lastSizeControl = SEGENV.aux0;
-  uint8_t currentSizeControl = SEGMENT.custom1;
-  bool sizeChanged = (currentSizeControl != lastSizeControl);
+  // Track particle size and particle count slider changes, re-initialize if either changes
+  uint8_t currentSize = SEGMENT.custom1;
+  uint8_t currentNumParticles = (SEGMENT.intensity >> 3) + 3;
+  if (currentNumParticles > MAX_LAVA_PARTICLES) currentNumParticles = MAX_LAVA_PARTICLES;
+  bool needsReinit = (currentSize != SEGENV.aux0) || (currentNumParticles != SEGENV.aux1);
 
-  if (sizeChanged) {
-    // Recalculate size range based on new slider value
-    float minSize = cols * 0.15f;
-    float maxSize = cols * 0.4f;
-    float newRange = (maxSize - minSize) * (currentSizeControl / 255.0f);
-    
+  if (needsReinit) {
     for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
-      if (lavaParticles[i].active) {
-        // Assign new random size within the new range
-        int rangeInt = max(1, (int)(newRange));
-        lavaParticles[i].size = minSize + (float)random16(rangeInt);
-        // Ensure minimum size
-        if (lavaParticles[i].size < minSize) lavaParticles[i].size = minSize;
-      }
+      lavaParticles[i].active = false;
     }
-    SEGENV.aux0 = currentSizeControl;
+    SEGENV.aux0 = currentSize;
+    SEGENV.aux1 = currentNumParticles;
   }
+
+  uint8_t size = currentSize;
+  uint8_t numParticles = currentNumParticles;
+  
+  // blob size based on matrix width
+  const float minSize = cols * 0.15f; // Minimum 15% of width
+  const float maxSize = cols * 0.4f;  // Maximum 40% of width
+  float sizeRange = (maxSize - minSize) * (size / 255.0f);
+  int rangeInt = max(1, (int)(sizeRange));
+
+  // calculate the spawning area for the particles
+  const float spawnXStart = cols * 0.20f;
+  const float spawnXWidth = cols * 0.60f;
+  int spawnX = max(1, (int)(spawnXWidth));
+
+  float speedFactor = (SEGMENT.speed + 5) / 255.0f;     // (SEGMENT.speed + 30) / 100.0f; // 0.3 to 2.85 range
 
   // Spawn new particles at the bottom near the center
   for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
-    if (!lavaParticles[i].active && hw_random8() < 32) { // sporadically spawn when slot available
-      // Spawn in the middle 60% of the width
-      float centerStart = cols * 0.20f;
-      float centerWidth = cols * 0.60f;
-      int cwInt = max(1, (int)(centerWidth));
-      lavaParticles[i].x = centerStart + (float)random16(cwInt);
+    if (!lavaParticles[i].active && hw_random8() < 32) { // spawn when slot available
+      // Spawn in the middle 60% of the matrix width
+      lavaParticles[i].x = spawnXStart + (float)hw_random16(spawnX);
       lavaParticles[i].y = rows - 1;
-      lavaParticles[i].vx = (random16(7) - 3) / 250.0f;
+      lavaParticles[i].vx = (hw_random16(7) - 3) / 250.0f;
       
       // Speed slider controls vertical velocity (faster = more speed)
-      float speedFactor = (SEGMENT.speed + 30) / 100.0f; // 0.3 to 2.85 range
-      lavaParticles[i].vy = -(random16(20) + 10) / 100.0f * speedFactor;
+      lavaParticles[i].vy = -(hw_random16(20) + 10) / 100.0f * 0.3f;    //speedFactor;
       
-      // Custom1 slider controls blob size (based on matrix width)
-      uint8_t sizeControl = SEGMENT.custom1; // 0-255
-      float minSize = cols * 0.15f; // Minimum 15% of width
-      float maxSize = cols * 0.4f;  // Maximum 40% of width
-      float sizeRange = (maxSize - minSize) * (sizeControl / 255.0f);
-      int rangeInt = max(1, (int)(sizeRange));
-      constexpr float MAX_BLOB_RADIUS = 20.0f; // cap to prevent frame rate drops on large matrices
-      lavaParticles[i].size = minSize + (float)random16(rangeInt);
+      lavaParticles[i].size = minSize + (float)hw_random16(rangeInt);
       if (lavaParticles[i].size > MAX_BLOB_RADIUS) lavaParticles[i].size = MAX_BLOB_RADIUS;
 
       lavaParticles[i].hue = hw_random8();
@@ -685,7 +676,7 @@ static void mode_2D_lavalamp(void) {
     p->x += p->vx;
     p->y += p->vy;
     
-    // Optional blob attraction (enabled with check2)
+    // Optional blob attraction
     if (SEGMENT.check2) {
       for (int j = 0; j < MAX_LAVA_PARTICLES; j++) {
         if (i == j || !lavaParticles[j].active) continue;
@@ -724,56 +715,77 @@ static void mode_2D_lavalamp(void) {
       p->vx = -abs(p->vx); // Just reverse horizontal, don't reduce
     }
 
-
-    // Adjust rise/fall velocity depending on distance from heat source (at bottom)
-    // In top 1/3rd of rows, slow down the rise rate
-    if (p->y < rows * .33f) {
-      if (p->vy <= 0) {  // if going up
-        // Add random speed amount when rising
-        //p->vy += 1.0f / 100.0f; // Add to make LESS negative (slower up)
-        p->vy += 0.03f; // Add to make LESS negative (slower up)
-        // Ensure minimum upward velocity
-        if (p->vy > -0.10f) p->vy = -0.10f;
-      }
+    /*
+    // debugging only
+    if (true) { //((strip.now - SEGENV.step) >= 500 && p->active) {
+      Serial.printf("Particle: ", i, " vy: ", p->vy, " Size: ", p->size);
+      SEGENV.step = strip.now;
     }
+    */
 
-    // In middle 1/3rd of rows, slow down the rise or fall rate
-    if (p->y <= rows * .67f && p->y >= rows * .33f) {
-      if (p->vy > 0) {  // if going down
-        // Subtract random speed amount when falling
-        //p->vy -= random16(3) / 100.0f; // Subtract to make LESS positive (slower down)
-        p->vy -= 0.01f; // Subtract to make LESS positive (slower down)
-        // Ensure minimum downward velocity
-        if (p->vy < 0.06f) p->vy = 0.06f;
-      } else if (p->vy <= 0) {  // if going up
-        // Add random speed amount when rising
-        //p->vy += random16(3) / 100.0f; // Add to make LESS negative (slower up)
-        p->vy += 0.01f; // Add to make LESS negative (slower up)
-        // Ensure minimum upward velocity
-        if (p->vy > -0.10f) p->vy = -0.10f;
+      // Adjust rise/fall velocity depending on distance from heat source (at bottom)
+
+      // In top 1/4th of rows, slow down the rise rate
+      if (p->y < rows * .25f) {
+        if (p->vy >= 0) {  // if going down
+          p->vy = 0.01f;
+          // Ensure minimum downward velocity
+          //if (p->vy < 0.06f) p->vy = 0.06f;
+        } else if (p->vy <= 0) {  // if going up
+          p->vy = -0.02f;
+          // Ensure minimum upward velocity
+          // if (p->vy > -0.10f) p->vy = -0.10f;
+        }
       }
-    }
-    
-    // In bottom 1/3rd of rows, slow down the fall rate
-    if (p->y > rows * .67f) {
-      if (p->vy >= 0) {  // if going down
-        // Subtract random speed amount when falling
-        //p->vy -= 1.0f / 100.0f; // Subtract to make LESS positive (slower down)
-        p->vy -= 0.03f; // Subtract to make LESS positive (slower down)
-        // Ensure minimum downward velocity
-        if (p->vy < 0.06f) p->vy = 0.06f;
+
+      // In next 1/4th of rows, slow down the rise or fall rate
+      if (p->y <= rows * .50f && p->y >= rows * .25f) {
+        if (p->vy > 0) {  // if going down
+          p->vy = 0.03f;
+          // Ensure minimum downward velocity
+       //   if (p->vy < 0.06f) p->vy = 0.06f;
+        } else if (p->vy <= 0) {  // if going up
+          p->vy = -0.05f;
+          // Ensure minimum upward velocity
+        //  if (p->vy > -0.10f) p->vy = -0.10f;
+        }
       }
-    }
+
+      // In next 1/4th of rows, slow down the rise or fall rate
+      if (p->y <= rows * .75f && p->y >= rows * .50f) {
+        if (p->vy > 0) {  // if going down
+          p->vy = 0.04f;
+          // Ensure minimum downward velocity
+       //   if (p->vy < 0.06f) p->vy = 0.06f;
+        } else if (p->vy <= 0) {  // if going up
+          p->vy = -0.03f;
+          // Ensure minimum upward velocity
+        //  if (p->vy > -0.10f) p->vy = -0.10f;
+        }
+      }
+
+      // In bottom 1/4th of rows, slow down the fall rate
+      if (p->y > rows * .75f) {
+        if (p->vy >= 0) {  // if going down
+          p->vy = 0.02f;
+          // Ensure minimum downward velocity
+          //if (p->vy < 0.06f) p->vy = 0.06f;
+        } else if (p->vy <= 0) {  // if going up
+          p->vy = -0.01f;
+          // Ensure minimum upward velocity
+          //if (p->vy > -0.10f) p->vy = -0.10f;
+        }
+      }
+  
 
 
-    // Boundary handling with proper reversal
+    // Boundary handling with reversal of direction
+
     // When reaching TOP (y=0 area), reverse to fall back down
     if (p->y <= 0.5f * p->size) {
       p->y = 0.5f * p->size;
       if (p->vy < 0) {
-        p->vy = -p->vy * 0.5f; // Reverse to positive (fall down) at HALF speed
-        // Ensure minimum downward velocity
-        if (p->vy < 0.06f) p->vy = 0.06f;
+        p->vy = 0.005f;  // set to a tiny positive to start falling very slowly
       }
     }
 
@@ -781,11 +793,7 @@ static void mode_2D_lavalamp(void) {
     if (p->y >= rows - 0.5f * p->size) {
       p->y = rows - 0.5f * p->size;
       if (p->vy > 0) {
-        p->vy = -p->vy; // Reverse to negative (rise up)
-        // Add random speed boost when rising
-        p->vy -= random16(15) / 100.0f; // Subtract to make MORE negative (faster up)
-        // Ensure minimum upward velocity
-        if (p->vy > -0.10f) p->vy = -0.10f;
+        p->vy = -0.005f;  // set to a tiny negative to start rising very slowly
       }
     }
 
@@ -803,34 +811,43 @@ static void mode_2D_lavalamp(void) {
     uint8_t g = (G(color) * 255) >> 8;
     uint8_t b = (B(color) * 255) >> 8;
 
-    // Draw blob with soft edges (gaussian-like falloff)
+    // Draw blob with sub-pixel accuracy using bilinear distribution
     float sizeSq = p->size * p->size;
-    for (int dy = -(int)p->size; dy <= (int)p->size; dy++) {
-      for (int dx = -(int)p->size; dx <= (int)p->size; dx++) {
-        int px = (int)(p->x + dx);
-        int py = (int)(p->y + dy);
-        
-        if (px >= 0 && px < cols && py >= 0 && py < rows) {
-          float distSq = dx*dx + dy*dy;
-          if (distSq < sizeSq) {
-            // Soft falloff using squared distance (faster)
-            float intensity = 1.0f - (distSq / sizeSq);
-            intensity = intensity * intensity; // Square for smoother falloff
-            
-            uint8_t bw = w * intensity;
-            uint8_t br = r * intensity;
-            uint8_t bg = g * intensity;
-            uint8_t bb = b * intensity;
 
-            // Additive blending for organic merging
-            uint32_t existing = SEGMENT.getPixelColorXY(px, py);
-            uint32_t newColor = RGBW32(br, bg, bb, bw);
-            uint32_t blended = color_add(existing, newColor);
-            SEGMENT.setPixelColorXY(px, py, blended);
-          }
+    // Get fractional offsets of particle center
+    float fracX = p->x - floorf(p->x);
+    float fracY = p->y - floorf(p->y);
+    int centerX = (int)floorf(p->x);
+    int centerY = (int)floorf(p->y);
+
+    for (int dy = -(int)p->size - 1; dy <= (int)p->size + 1; dy++) {
+      for (int dx = -(int)p->size - 1; dx <= (int)p->size + 1; dx++) {
+        int px = centerX + dx;
+        int py = centerY + dy;
+        
+        if (px < 0 || px >= cols || py < 0 || py >= rows) continue;
+
+        // Sub-pixel distance: measure from true float center to pixel center
+        float subDx = dx - fracX;  // distance from true center to this pixel's center
+        float subDy = dy - fracY;
+        float distSq = subDx * subDx + subDy * subDy;
+
+        if (distSq < sizeSq) {
+          float intensity = 1.0f - (distSq / sizeSq);
+          intensity = intensity * intensity; // smooth falloff
+
+          uint8_t bw = (uint8_t)(w * intensity);
+          uint8_t br = (uint8_t)(r * intensity);
+          uint8_t bg = (uint8_t)(g * intensity);
+          uint8_t bb = (uint8_t)(b * intensity);
+
+          uint32_t existing = SEGMENT.getPixelColorXY(px, py);
+          uint32_t newColor = RGBW32(br, bg, bb, bw);
+          SEGMENT.setPixelColorXY(px, py, color_add(existing, newColor));
         }
       }
     }
+
   }
 }
 static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of blobs,Blob size,,,Color mode,Attract;;!;2;ix=64,o2=1,pal=47";

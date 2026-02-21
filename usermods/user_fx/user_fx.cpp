@@ -576,11 +576,15 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
 */
 
 typedef struct LavaParticle {
-  float x, y;           // Position
-  float vx, vy;         // Velocity
-  float size;           // Blob size
-  uint8_t hue;          // Color
-  bool active;          // will not be displayed if false
+  float    x, y;         // Position
+  float    vx, vy;       // Velocity
+  float    size;         // Blob size
+  uint8_t  hue;          // Color
+  bool     active;       // will not be displayed if false
+  uint16_t delayTop;     // number of frames to wait at top before falling again
+  bool     idleTop;      // sitting idle at the top
+  uint16_t delayBottom;  // number of frames to wait at bottom before rising again
+  bool     idleBottom;   // sitting idle at the bottom
 } LavaParticle;
 
 static void mode_2D_lavalamp(void) {
@@ -590,6 +594,8 @@ static void mode_2D_lavalamp(void) {
   const uint16_t rows = SEG_H;
   constexpr float MAX_BLOB_RADIUS = 20.0f;  // cap to prevent frame rate drops on large matrices
   constexpr size_t MAX_LAVA_PARTICLES = 34;  // increasing this value could cause slowness for large matrices
+  constexpr size_t MAX_TOP_FPS_DELAY = 900;  // max delay when particles are at the top
+  constexpr size_t MAX_BOTTOM_FPS_DELAY = 1200;  // max delay when particles are at the bottom
 
   // Allocate per-segment storage
   if (!SEGENV.allocateData(sizeof(LavaParticle) * MAX_LAVA_PARTICLES)) FX_FALLBACK_STATIC;
@@ -649,6 +655,11 @@ static void mode_2D_lavalamp(void) {
 
       lavaParticles[i].hue = hw_random8();
       lavaParticles[i].active = true;
+
+      // Set random delays when particles are at top and bottom
+      lavaParticles[i].delayTop = hw_random16(MAX_TOP_FPS_DELAY);
+      lavaParticles[i].delayBottom = hw_random16(MAX_BOTTOM_FPS_DELAY);
+      lavaParticles[i].idleBottom = true;
       break;
     }
   }
@@ -715,85 +726,75 @@ static void mode_2D_lavalamp(void) {
       p->vx = -abs(p->vx); // Just reverse horizontal, don't reduce
     }
 
-    /*
-    // debugging only
-    if (true) { //((strip.now - SEGENV.step) >= 500 && p->active) {
-      Serial.printf("Particle: ", i, " vy: ", p->vy, " Size: ", p->size);
-      SEGENV.step = strip.now;
-    }
-    */
-
-      // Adjust rise/fall velocity depending on distance from heat source (at bottom)
-
-      // In top 1/4th of rows, slow down the rise rate
-      if (p->y < rows * .25f) {
-        if (p->vy >= 0) {  // if going down
+    // Adjust rise/fall velocity depending on approx distance from heat source (at bottom)
+    // In top 1/4th of rows...
+    if (p->y < rows * .25f) {
+      if (p->vy >= 0) {  // if going down, delay the particles so they won't go down immediately
+        if (p->delayTop > 0 && p->idleTop) {
+          p->vy = 0.0f;
+          p->delayTop--;
+          p->idleTop = true;
+        } else {
           p->vy = 0.01f;
-          // Ensure minimum downward velocity
-          //if (p->vy < 0.06f) p->vy = 0.06f;
-        } else if (p->vy <= 0) {  // if going up
-          p->vy = -0.02f;
-          // Ensure minimum upward velocity
-          // if (p->vy > -0.10f) p->vy = -0.10f;
+          p->delayTop = hw_random16(MAX_TOP_FPS_DELAY);
+          p->idleTop = false;
         }
+      } else if (p->vy <= 0) {  // if going up, slow down the rise rate
+        p->vy = -0.03f;
       }
+    }
 
-      // In next 1/4th of rows, slow down the rise or fall rate
-      if (p->y <= rows * .50f && p->y >= rows * .25f) {
-        if (p->vy > 0) {  // if going down
-          p->vy = 0.03f;
-          // Ensure minimum downward velocity
-       //   if (p->vy < 0.06f) p->vy = 0.06f;
-        } else if (p->vy <= 0) {  // if going up
-          p->vy = -0.05f;
-          // Ensure minimum upward velocity
-        //  if (p->vy > -0.10f) p->vy = -0.10f;
-        }
+    // In next 1/4th of rows...
+    if (p->y <= rows * .50f && p->y >= rows * .25f) {
+      if (p->vy > 0) {  // if going down, speed up the fall rate
+        p->vy = 0.03f;
+      } else if (p->vy <= 0) {  // if going up, speed up the rise rate a little more
+        p->vy = -0.05f;
       }
+    }
 
-      // In next 1/4th of rows, slow down the rise or fall rate
-      if (p->y <= rows * .75f && p->y >= rows * .50f) {
-        if (p->vy > 0) {  // if going down
-          p->vy = 0.04f;
-          // Ensure minimum downward velocity
-       //   if (p->vy < 0.06f) p->vy = 0.06f;
-        } else if (p->vy <= 0) {  // if going up
-          p->vy = -0.03f;
-          // Ensure minimum upward velocity
-        //  if (p->vy > -0.10f) p->vy = -0.10f;
-        }
+    // In next 1/4th of rows...
+    if (p->y <= rows * .75f && p->y >= rows * .50f) {
+      if (p->vy > 0) {  // if going down, speed up the fall rate a little more
+        p->vy = 0.04f;
+      } else if (p->vy <= 0) {  // if going up, speed up the rise rate
+        p->vy = -0.03f;
       }
+    }
 
-      // In bottom 1/4th of rows, slow down the fall rate
-      if (p->y > rows * .75f) {
-        if (p->vy >= 0) {  // if going down
-          p->vy = 0.02f;
-          // Ensure minimum downward velocity
-          //if (p->vy < 0.06f) p->vy = 0.06f;
-        } else if (p->vy <= 0) {  // if going up
+    // In bottom 1/4th of rows...
+    if (p->y > rows * .75f) {
+      if (p->vy >= 0) {  // if going down, slow down the fall rate
+        p->vy = 0.02f;
+      } else if (p->vy <= 0) {  // if going up, delay the particles so they won't go up immediately
+        if (p->delayBottom > 0 && p->idleBottom) {
+          p->vy = 0.0f;
+          p->delayBottom--;
+          p->idleBottom = true;
+        } else {
           p->vy = -0.01f;
-          // Ensure minimum upward velocity
-          //if (p->vy > -0.10f) p->vy = -0.10f;
+          p->delayBottom = hw_random16(MAX_BOTTOM_FPS_DELAY);
+          p->idleBottom = false;
         }
       }
-  
-
+    }
 
     // Boundary handling with reversal of direction
-
-    // When reaching TOP (y=0 area), reverse to fall back down
+    // When reaching TOP (y=0 area), reverse to fall back down, but need to delay first
     if (p->y <= 0.5f * p->size) {
       p->y = 0.5f * p->size;
       if (p->vy < 0) {
-        p->vy = 0.005f;  // set to a tiny positive to start falling very slowly
+        p->vy = 0.005f;  // set to a tiny positive value to start falling very slowly
+        p->idleTop = true;
       }
     }
 
-    // When reaching BOTTOM (y=rows-1 area), reverse to rise back up
+    // When reaching BOTTOM (y=rows-1 area), reverse to rise back up, but need to delay first
     if (p->y >= rows - 0.5f * p->size) {
       p->y = rows - 0.5f * p->size;
       if (p->vy > 0) {
-        p->vy = -0.005f;  // set to a tiny negative to start rising very slowly
+        p->vy = -0.005f;  // set to a tiny negative value to start rising very slowly
+        p->idleBottom = true;
       }
     }
 

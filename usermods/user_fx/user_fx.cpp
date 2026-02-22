@@ -572,7 +572,8 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
 *   The third slider sets the damping value for horizontal blob movement
 *   The first checkbox sets the color mode (color wheel or palette)
 *   The second checkbox sets the attraction of blobs (checked will make the blobs attract other close blobs horizontally)
-*   aux0 keeps track of the blob size changes
+*   aux0 keeps track of the blob size value
+*   aux1 keeps track of the number of blobs
 */
 
 typedef struct LavaParticle {

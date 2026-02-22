@@ -567,9 +567,9 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
 *   Uses particles to simulate rising blobs of "lava"
 *   Particles slowly rise, merge to create organic flowing shapes, and then fall to the bottom to start again
 *   Created by Bob Loeffler using claude.ai
-*   The first slider sets the speed of the rising and falling blobs
-*   The second slider sets the number of active blobs
-*   The third slider sets the size range of the blobs
+*   The first slider sets the number of active blobs
+*   The second slider sets the size range of the blobs
+*   The third slider sets the damping value for horizontal blob movement
 *   The first checkbox sets the color mode (color wheel or palette)
 *   The second checkbox sets the attraction of blobs (checked will make the blobs attract other close blobs horizontally)
 *   aux0 keeps track of the blob size changes
@@ -605,13 +605,12 @@ static void mode_2D_lavalamp(void) {
   if (SEGENV.call == 0) {
     for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
       lavaParticles[i].active = false;
-      SEGENV.step = 0;  // for debugging only
     }
   }
 
   // Track particle size and particle count slider changes, re-initialize if either changes
-  uint8_t currentSize = SEGMENT.custom1;
   uint8_t currentNumParticles = (SEGMENT.intensity >> 3) + 3;
+  uint8_t currentSize = SEGMENT.custom1;
   if (currentNumParticles > MAX_LAVA_PARTICLES) currentNumParticles = MAX_LAVA_PARTICLES;
   bool needsReinit = (currentSize != SEGENV.aux0) || (currentNumParticles != SEGENV.aux1);
 
@@ -637,7 +636,7 @@ static void mode_2D_lavalamp(void) {
   const float spawnXWidth = cols * 0.60f;
   int spawnX = max(1, (int)(spawnXWidth));
 
-  float speedFactor = (SEGMENT.speed + 5) / 255.0f;     // (SEGMENT.speed + 30) / 100.0f; // 0.3 to 2.85 range
+  //float speedFactor = (SEGMENT.speed + 5) / 255.0f;     // (SEGMENT.speed + 30) / 100.0f; // 0.3 to 2.85 range
 
   // Spawn new particles at the bottom near the center
   for (int i = 0; i < MAX_LAVA_PARTICLES; i++) {
@@ -646,9 +645,7 @@ static void mode_2D_lavalamp(void) {
       lavaParticles[i].x = spawnXStart + (float)hw_random16(spawnX);
       lavaParticles[i].y = rows - 1;
       lavaParticles[i].vx = (hw_random16(7) - 3) / 250.0f;
-      
-      // Speed slider controls vertical velocity (faster = more speed)
-      lavaParticles[i].vy = -(hw_random16(20) + 10) / 100.0f * 0.3f;    //speedFactor;
+      lavaParticles[i].vy = -(hw_random16(20) + 10) / 100.0f * 0.3f;
       
       lavaParticles[i].size = minSize + (float)hw_random16(rangeInt);
       if (lavaParticles[i].size > MAX_BLOB_RADIUS) lavaParticles[i].size = MAX_BLOB_RADIUS;
@@ -687,7 +684,7 @@ static void mode_2D_lavalamp(void) {
     p->x += p->vx;
     p->y += p->vy;
     
-    // Optional blob attraction
+    // Optional particle/blob attraction
     if (SEGMENT.check2) {
       for (int j = 0; j < MAX_LAVA_PARTICLES; j++) {
         if (i == j || !lavaParticles[j].active) continue;
@@ -713,17 +710,19 @@ static void mode_2D_lavalamp(void) {
     }
 
     // Horizontal oscillation (makes it more organic)
+    float damping= map(SEGMENT.custom2, 0, 255, 87, 97) / 100.0f;
     p->vx += sin((currentMillis / 1000.0f + i) * 0.5f) * 0.002f; // Reduced oscillation
-    p->vx *= 0.92f; // Stronger damping for less drift
-    
+    //p->vx *= 0.92f; // Stronger damping for less drift
+    p->vx *= damping; // damping for more or less horizontal drift
+
     // Bounce off sides (don't affect vertical velocity)
     if (p->x < 0) {
       p->x = 0;
-      p->vx = abs(p->vx); // Just reverse horizontal, don't reduce
+      p->vx = abs(p->vx); // reverse horizontal
     }
     if (p->x >= cols) {
       p->x = cols - 1;
-      p->vx = -abs(p->vx); // Just reverse horizontal, don't reduce
+      p->vx = -abs(p->vx); // reverse horizontal
     }
 
     // Adjust rise/fall velocity depending on approx distance from heat source (at bottom)
@@ -851,7 +850,7 @@ static void mode_2D_lavalamp(void) {
 
   }
 }
-static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@Speed,# of blobs,Blob size,,,Color mode,Attract;;!;2;ix=64,o2=1,pal=47";
+static const char _data_FX_MODE_2D_LAVALAMP[] PROGMEM = "Lava Lamp@,# of blobs,Blob size,Horz Damping,,Color mode,Attract;;!;2;ix=64,o2=1,pal=47";
 
 
 /*

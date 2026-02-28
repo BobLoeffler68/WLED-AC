@@ -1287,7 +1287,8 @@ static const char _data_FX_MODE_2D_MAGMA[] PROGMEM = "Magma@Flow rate,Magma heig
 
 /*
 /  Perlin Landscape
-*   Created by stepko as part of Stepko Land on soulmatelights.com and adapted to WLED by Bob Loeffler
+*   Created by stepko as part of Stepko Land on soulmatelights.com
+*   Adapted to WLED by Bob Loeffler
 *   First slider (speed)
 *   It does not use a color palette, but may be user selectable in the future.
 */
@@ -1413,6 +1414,65 @@ static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Int
 
 
 
+/*
+  Particle based Swinger effect
+  Uses palette for particle color
+  by Bob Loeffler
+  Particle System by DedeHai (Damian Schneider)
+*/
+void mode_particle1Dswinger(void) {
+  ParticleSystem1D *PartSys = nullptr;
+
+  //const uint8_t refresh_hz = map(SEGMENT.speed, 0, 255, 20, 80);
+  const unsigned refresh_ms = 1000;  // / refresh_hz;
+
+  if (SEGMENT.call == 0) { // initialization
+    if (!initParticleSystem1D(PartSys, 1))
+      FX_FALLBACK_STATIC; // allocation failed or is single pixel
+    PartSys->setKillOutOfBounds(true);
+    PartSys->setWallHardness(150);
+    PartSys->setParticleSize(1);
+    SEGENV.step = 0;
+  }
+  else
+    PartSys = reinterpret_cast<ParticleSystem1D *>(SEGENV.data); // if not first call, just set the pointer to the PS
+  if (PartSys == nullptr)
+    FX_FALLBACK_STATIC; // something went wrong, no data!
+
+  // Particle System settings
+  PartSys->updateSystem(); // update system properties (dimensions and data pointers)
+  PartSys->setBounce(false);
+  PartSys->setMotionBlur(SEGMENT.custom2); // anable motion blur
+  int32_t gravity = -((int32_t)SEGMENT.custom3 - 16);  // gravity setting, 0-15 is positive (down), 17 - 31 is negative (up)
+  PartSys->setGravity(abs(gravity)); // use reversgrav setting to invert gravity (for proper 'floor' and out of bounds handling)
+
+  PartSys->sources[0].source.hue = SEGMENT.aux0; // hw_random16();
+  PartSys->sources[0].var = 20;
+  PartSys->sources[0].minLife = 300;
+  PartSys->sources[0].maxLife = 500;
+  PartSys->sources[0].source.x = map(SEGMENT.custom1, 0 , 255, 0, PartSys->maxX); // spray position
+  PartSys->sources[0].v = map(SEGMENT.speed, 0 , 255, -127 + PartSys->sources[0].var, 127 - PartSys->sources[0].var); // particle emit speed
+  PartSys->sources[0].sourceFlags.reversegrav = gravity < 0 ? true : false;
+
+  if ((strip.now - SEGENV.step) >= refresh_ms) {
+    PartSys->sprayEmit(PartSys->sources[0]); // emit a particle
+    SEGMENT.aux0++; // increment hue
+    SEGENV.step = strip.now;
+  }
+
+  //update color settings
+  PartSys->setColorByAge(SEGMENT.check1); // overruled by 'color by position'
+  PartSys->setColorByPosition(SEGMENT.check3);
+  for (uint i = 0; i < PartSys->usedParticles; i++) {
+    PartSys->particleFlags[i].reversegrav = PartSys->sources[0].sourceFlags.reversegrav; // update gravity direction
+  }
+  PartSys->update(); // update and render
+}
+static const char _data_FX_MODE_PS_1DSWINGER[] PROGMEM = "PS Swinger 1D@Speed(+/-),!,Position,Blur,Gravity(+/-),AgeColor,,Position Color;,!;!;1;sx=200,ix=220,c1=0,c2=0";
+
+
+
+
 /////////////////////
 //  UserMod Class  //
 /////////////////////
@@ -1429,6 +1489,8 @@ class UserFxUsermod : public Usermod {
     strip.addEffect(255, &mode_2D_magma, _data_FX_MODE_2D_MAGMA);
     strip.addEffect(255, &mode_2D_perlinland, _data_FX_MODE_2D_PERLINLAND);
     strip.addEffect(255, &mode_2D_solarflare, _data_FX_MODE_2D_SOLARFLARE);
+
+    strip.addEffect(255, &mode_particle1Dswinger, _data_FX_MODE_PS_1DSWINGER);
 
     ////////////////////////////////////////
     //  add your effect function(s) here  //

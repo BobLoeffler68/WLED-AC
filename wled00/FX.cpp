@@ -2710,7 +2710,7 @@ void mode_twinklecat()
 }
 static const char _data_FX_MODE_TWINKLECAT[] PROGMEM = "Twinklecat@!,Twinkle rate,,,,Cool,Reverse;!,!;!";
 
-
+/*
 void mode_halloween_eyes()
 {
   enum eyeState : uint8_t {
@@ -2861,6 +2861,187 @@ void mode_halloween_eyes()
         break;
     }
     data.startTime = strip.now;
+  }
+}
+static const char _data_FX_MODE_HALLOWEEN_EYES[] PROGMEM = "Halloween Eyes@Eye off time,Eye on time,,,,,Overlay;!,!;!;12";
+*/
+
+
+void mode_halloween_eyes()
+{
+  enum eyeState : uint8_t {
+    initializeOn = 0,
+    on,
+    blink,
+    initializeOff,
+    fadeOut,
+    off,
+    count
+  };
+  struct EyeData {
+    eyeState state;
+    uint8_t color;
+    uint16_t startPos;
+    uint16_t duration;
+    uint32_t startTime;
+    uint32_t blinkEndTime;
+    uint32_t fadeOutStartTime;
+  };
+
+  if (SEGLEN <= 1) FX_FALLBACK_STATIC;
+  const unsigned maxWidth = strip.isMatrix ? SEG_W : SEGLEN;
+  const unsigned HALLOWEEN_EYE_SPACE = MAX(2, strip.isMatrix ? SEG_W>>4: SEGLEN>>5);
+  const unsigned HALLOWEEN_EYE_WIDTH = HALLOWEEN_EYE_SPACE/2;
+  unsigned eyeLength = (2*HALLOWEEN_EYE_WIDTH) + HALLOWEEN_EYE_SPACE;
+  if (eyeLength >= maxWidth) FX_FALLBACK_STATIC;
+
+  // Calculate how many eye pairs can fit, spaced with at least eyeLength gap between them
+  const unsigned minSpacing = eyeLength * 2; // minimum space per eye pair slot
+  const unsigned maxEyes = max(1u, maxWidth / minSpacing);
+
+  if (!SEGENV.allocateData(sizeof(EyeData) * maxEyes)) FX_FALLBACK_STATIC;
+  EyeData* eyes = reinterpret_cast<EyeData*>(SEGENV.data);
+
+  if (!SEGMENT.check2) SEGMENT.fill(SEGCOLOR(1)); // fill background
+
+  for (unsigned eyeIdx = 0; eyeIdx < maxEyes; eyeIdx++) {
+    EyeData& data = eyes[eyeIdx];
+
+    data.state = static_cast<eyeState>(data.state % eyeState::count);
+    unsigned duration = max(uint16_t{1u}, data.duration);
+    const uint32_t elapsedTime = strip.now - data.startTime;
+
+    // Each eye pair gets its own horizontal slot to avoid overlap
+    const unsigned slotWidth = maxWidth / maxEyes;
+    const unsigned slotStart = eyeIdx * slotWidth;
+    const unsigned slotEnd = slotStart + slotWidth;
+    const unsigned slotUsable = slotEnd - slotStart;
+
+    switch (data.state) {
+      case eyeState::initializeOn: {
+        // Place eyes randomly within this eye's slot
+        unsigned maxStartInSlot = (slotUsable > eyeLength) ? (slotUsable - eyeLength - 1) : 0;
+        data.startPos = slotStart + hw_random16(0, maxStartInSlot + 1);
+        data.color = hw_random8();
+        if (strip.isMatrix) SEGMENT.offset = hw_random16(SEG_H - 1);
+        duration = 128u + hw_random16(SEGMENT.intensity * 64u);
+        data.duration = duration;
+        data.state = eyeState::on;
+        [[fallthrough]];
+      }
+      case eyeState::on: {
+        unsigned start2ndEye = data.startPos + HALLOWEEN_EYE_WIDTH + HALLOWEEN_EYE_SPACE;
+        duration = min(duration, (128u + (SEGMENT.intensity * 64u)));
+
+        constexpr uint32_t minimumOnTimeBegin = 1024u;
+        constexpr uint32_t minimumOnTimeEnd = 1024u;
+        const uint32_t fadeInAnimationState = elapsedTime * uint32_t{256u * 8u} / duration;
+        const uint32_t backgroundColor = SEGCOLOR(1);
+        const uint32_t eyeColor = SEGMENT.color_from_palette(data.color, false, false, 0);
+        uint32_t c = eyeColor;
+        if (fadeInAnimationState < 256u) {
+          c = color_blend(backgroundColor, eyeColor, uint8_t(fadeInAnimationState));
+        } else if (elapsedTime > minimumOnTimeBegin) {
+          const uint32_t remainingTime = (elapsedTime >= duration) ? 0u : (duration - elapsedTime);
+          if (remainingTime > minimumOnTimeEnd) {
+            if (hw_random8() < 4u) {
+              c = backgroundColor;
+              data.state = eyeState::blink;
+              data.blinkEndTime = strip.now + hw_random8(8, 128);
+            }
+          }
+        }
+
+        if (c != backgroundColor) {
+          for (unsigned i = 0; i < HALLOWEEN_EYE_WIDTH; i++) {
+            if (strip.isMatrix) {
+              SEGMENT.setPixelColorXY(data.startPos + i, (unsigned)SEGMENT.offset, c);
+              SEGMENT.setPixelColorXY(start2ndEye   + i, (unsigned)SEGMENT.offset, c);
+            } else {
+              SEGMENT.setPixelColor(data.startPos + i, c);
+              SEGMENT.setPixelColor(start2ndEye   + i, c);
+            }
+          }
+        }
+        break;
+      }
+      case eyeState::blink: {
+        if (strip.now >= data.blinkEndTime) {
+          data.state = eyeState::on;
+        }
+        break;
+      }
+      case eyeState::initializeOff: {
+        // Start a fade-out instead of immediately going off
+        data.fadeOutStartTime = strip.now;
+        constexpr uint32_t fadeOutDuration = 800u; // ms to fade out
+        duration = fadeOutDuration;
+        data.duration = duration;
+        data.state = eyeState::fadeOut;
+        [[fallthrough]];
+      }
+      case eyeState::fadeOut: {
+        // Render eyes fading from full color to background
+        constexpr uint32_t fadeOutDuration = 800u;
+        const uint32_t fadeElapsed = strip.now - data.fadeOutStartTime;
+        const uint32_t backgroundColor = SEGCOLOR(1);
+        const uint32_t eyeColor = SEGMENT.color_from_palette(data.color, false, false, 0);
+
+        uint8_t fadeAmount = (fadeElapsed >= fadeOutDuration)
+          ? 0u
+          : uint8_t(255u - (fadeElapsed * 255u / fadeOutDuration));
+
+        uint32_t c = color_blend(backgroundColor, eyeColor, fadeAmount);
+        unsigned start2ndEye = data.startPos + HALLOWEEN_EYE_WIDTH + HALLOWEEN_EYE_SPACE;
+
+        for (unsigned i = 0; i < HALLOWEEN_EYE_WIDTH; i++) {
+          if (strip.isMatrix) {
+            SEGMENT.setPixelColorXY(data.startPos + i, (unsigned)SEGMENT.offset, c);
+            SEGMENT.setPixelColorXY(start2ndEye   + i, (unsigned)SEGMENT.offset, c);
+          } else {
+            SEGMENT.setPixelColor(data.startPos + i, c);
+            SEGMENT.setPixelColor(start2ndEye   + i, c);
+          }
+        }
+
+        if (fadeElapsed >= fadeOutDuration) {
+          data.state = eyeState::off;
+          // transition immediately to off/initializeOn cycle
+          const unsigned eyeOffTimeBase = SEGMENT.speed * 128u;
+          duration = eyeOffTimeBase + hw_random16(eyeOffTimeBase);
+          data.duration = duration;
+          data.startTime = strip.now;
+        }
+        break;
+      }
+      case eyeState::off: {
+        const unsigned eyeOffTimeBase = SEGMENT.speed * 128u;
+        duration = min(duration, (2u * eyeOffTimeBase));
+        break;
+      }
+      case eyeState::count: {
+        data.state = eyeState::initializeOn;
+        break;
+      }
+    }
+
+    if (elapsedTime > duration) {
+      switch (data.state) {
+        case eyeState::initializeOn:
+        case eyeState::on:
+        case eyeState::blink:
+          data.state = eyeState::initializeOff;
+          break;
+        case eyeState::initializeOff:
+        case eyeState::fadeOut:
+        case eyeState::off:
+        case eyeState::count:
+        default:
+          data.state = eyeState::initializeOn;
+          break;
+      }
+      data.startTime = strip.now;
+    }
   }
 }
 static const char _data_FX_MODE_HALLOWEEN_EYES[] PROGMEM = "Halloween Eyes@Eye off time,Eye on time,,,,,Overlay;!,!;!;12";

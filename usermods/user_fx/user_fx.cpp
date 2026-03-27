@@ -898,7 +898,7 @@ static void handleBoundary(Ant& ant, float& position, bool gatherFood, bool atSt
 // Helper function to calculate ant color
 static uint32_t getAntColor(int antIndex, int numAnts, bool usePalette) {
   if (usePalette)
-    return SEGMENT.color_from_palette(antIndex * 255 / numAnts, false, (strip.paletteBlend == 1 || strip.paletteBlend == 3), 255);
+    return SEGMENT.color_from_palette(antIndex * 255 / numAnts, false, (paletteBlend == 1 || paletteBlend == 3), 255);
   // Alternate between two colors for default palette
   return (antIndex % 3 == 1) ? SEGCOLOR(0) : SEGCOLOR(2);
 }
@@ -1700,8 +1700,7 @@ static void mode_brushwalker(void)
 
 // The metadata string consists of up to five sections, separated by semicolons:
 // <Effect parameters>;<Colors>;<Palette>;<Flags>;<Defaults>
-static const char _data_FX_MODE_BRUSHWALKER[] PROGMEM =
-    "Brush Walker@!,Spawn,Fade,Palette Step,Max Walkers;,!;!;2;pal=11,sx=200,ix=64,c1=48,c2=24,c3=16";
+static const char _data_FX_MODE_BRUSHWALKER[] PROGMEM = "Brush Walker@!,Spawn,Fade,Palette Step,Max Walkers;,!;!;2;pal=11,sx=200,ix=64,c1=48,c2=24,c3=16";
 
 /*
  *

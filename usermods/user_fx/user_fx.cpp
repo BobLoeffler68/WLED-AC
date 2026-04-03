@@ -140,6 +140,7 @@ static const char _data_FX_MODE_DIFFUSIONFIRE[] PROGMEM = "Diffusion Fire@!,Spar
 
 static void mode_spinning_wheel(void) {
   if (SEGLEN < 1) FX_FALLBACK_STATIC;
+
   unsigned strips = SEGMENT.nrOfVStrips();
   if (strips == 0) FX_FALLBACK_STATIC;
 
@@ -170,7 +171,6 @@ static void mode_spinning_wheel(void) {
 
   // Handle random seeding globally (outside the virtual strip)
   if (SEGENV.call == 0) {
-    //random16_set_seed(hw_random16());
     SEGENV.aux1 = (255 << 8) / SEGLEN; // Cache the color scaling
   }
 
@@ -178,7 +178,6 @@ static void mode_spinning_wheel(void) {
   uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom3 + SEGMENT.check1 + SEGMENT.check3;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
   if (settingsChanged) {
-    //random16_add_entropy(hw_random16());
     SEGENV.aux0 = settingssum;
   }
 
@@ -188,6 +187,7 @@ static void mode_spinning_wheel(void) {
     uint8_t spinnerSize = map(SEGMENT.custom1, 0, 255, 1, 10);
     uint16_t spin_delay = map(SEGMENT.custom3, 0, 31, 2000, 15000);
     uint32_t now = strip.now;
+
     for (unsigned stripNr = 0; stripNr < strips; stripNr += spinnerSize) {
       uint32_t* stripState = &state[stripNr * stateVarsPerStrip];
       // Check if this spinner is stopped AND has waited its delay

@@ -310,6 +310,21 @@ function onLoad()
 		sl.addEventListener('touchstart', toggleBubble);
 		sl.addEventListener('touchend', toggleBubble);
 	});
+	// limiter for all number inputs: limit inputs instantly
+	d.addEventListener("input", function(e) {
+		const t = e.target;
+		if (t.tagName === "INPUT" && t.type === "number") {
+			let val = parseFloat(t.value);
+			const max = parseFloat(t.max);
+			const min = parseFloat(t.min);
+
+			if (!isNaN(val)) {
+				if (val > max) t.value = max;
+				if (val < min) t.value = min;
+				if (t.oninput) t.oninput(); // refresh UI labels
+			}
+		}
+	}, false);
 }
 
 function updateTablinks(tabI)
@@ -707,13 +722,17 @@ ${inforow("Uptime",getRuntimeStr(i.uptime))}
 ${inforow("Time",i.time)}
 ${inforow("Free heap",(i.freeheap/1024).toFixed(1)," kB")}
 ${i.psram?inforow("Free PSRAM",(i.psram/1024).toFixed(1)," kB"):""}
+<tr><td colspan=2><hr class="sml"></td></tr>
+${i.leds.count?inforow("Total LEDs",i.leds.count):""}
 ${inforow("Estimated current",pwru)}
 ${inforow("Average FPS",i.leds.fps)}
+<tr><td colspan=2><hr class="sml"></td></tr>
 ${inforow("MAC address",i.mac)}
 ${inforow("CPU clock",i.clock," MHz")}
 ${inforow("Flash size",i.flash," MB")}
 ${inforow("Filesystem",i.fs.u + "/" + i.fs.t + " kB (" +Math.round(i.fs.u*100/i.fs.t) + "%)")}
-${inforow("Environment",i.arch + " " + i.core + " (" + i.lwip + ")")}
+${inforow("Environment",i.arch + " " + i.core + ( i.lwip ? " (" + i.lwip + ")" : ""))}
+${i.repo?inforow("GitHub","<a href=\"https://github.com/"+i.repo+"\" target=\"_blank\" rel=\"noopener noreferrer\">" + i.repo + "</a>"):""}
 </table>`;
 	gId('kv').innerHTML = cn;
 	//  update all sliders in Info
@@ -794,6 +813,7 @@ function populateSegments(s)
 							`<option value="13" ${inst.bm==13?' selected':''}>Soft Light</option>`+
 							`<option value="14" ${inst.bm==14?' selected':''}>Dodge</option>`+
 							`<option value="15" ${inst.bm==15?' selected':''}>Burn</option>`+
+							`<option value="16" ${inst.bm==16?' selected':''}>Stencil</option>`+
 						`</select></div>`+
 					`</div>`;
 		let sndSim = `<div data-snd="si" class="lbl-s hide">Sound sim<br>`+
@@ -1657,12 +1677,10 @@ function setEffectParameters(idx)
 			paOnOff[0] = paOnOff[0].substring(0,dPos);
 		}
 		if (paOnOff.length>0 && paOnOff[0] != "!") text = paOnOff[0];
-		gId("editPal").classList.remove("hide");
 	} else {
 		// disable palette list
 		text += ' not used';
 		palw.style.display = "none";
-		gId("editPal").classList.add("hide");
 		// Close palette dialog if not available
 		if (palw.lastElementChild.tagName == "DIALOG") {
 			palw.lastElementChild.close();
@@ -1953,12 +1971,12 @@ function pleDur(p,i,field)
 function pleTr(p,i,field)
 {
 	const du = gId(`pl${p}du${i}`);
-	const dv = parseFloat(du.value);
-	if (dv > 0) {
-		field.max = dv;
-		if (parseFloat(field.value) > dv)
-			field.value = du.value;
-	}
+	const dv = parseFloat(du.value); // duaration value in seconds
+	const max = parseFloat(field.max);
+	let val = parseFloat(field.value);
+	if (isNaN(val)) return;
+	val = Math.min(val, max, dv > 0 ? dv : max); // limit to max or duration, whichever is smaller
+	field.value = val;
 	if (field.validity.valid)
 		plJson[p].transition[i] = Math.floor(field.value*10);
 }
@@ -2114,8 +2132,8 @@ function makePlEntry(p,i)
 		<td class="c">#${i+1}</td>
 	</tr>
 	<tr>
-		<td class="c" width="40%"><input class="segn" type="number" placeholder="Duration" max=6553.0 min=0.0 step=0.1 oninput="pleDur(${p},${i},this)" value="${plJson[p].dur[i]/10.0}" id="pl${p}du${i}" ${man?"readonly":""}>s</td>
-		<td class="c" width="40%"><input class="segn" type="number" placeholder="Transition" max=65.0 min=0.0 step=0.1 oninput="pleTr(${p},${i},this)" onfocus="pleTr(${p},${i},this)" value="${plJson[p].transition[i]/10.0}">s</td>
+		<td class="c" width="40%"><input class="segn" type="number" style="width:7ch" placeholder="Duration" max=4294967 min=0.0 step=0.1 oninput="pleDur(${p},${i},this)" value="${plJson[p].dur[i]/10.0}" id="pl${p}du${i}" ${man?"readonly":""}>s</td>
+		<td class="c" width="40%"><input class="segn" type="number" style="width:4ch" placeholder="Transition" max=65.5 min=0.0 step=0.1 oninput="pleTr(${p},${i},this)" onfocus="pleTr(${p},${i},this)" value="${plJson[p].transition[i]/10.0}" id="pl${p}tr${i}">s</td>
 		<td class="c"><button class="btn btn-pl-del" onclick="delPl(${p},${i})"><i class="icons btn-icon">&#xe037;</i></button></div></td>
 	</tr>
 	</table>
@@ -2319,7 +2337,7 @@ function setSi(s)
 
 function setBm(s)
 {
-	var value = gId(`seg${s}bm`).selectedIndex;
+	var value = gId(`seg${s}bm`).value;
 	var obj = {"seg": {"id": s, "bm": value}};
 	requestJson(obj);
 }
@@ -2486,6 +2504,10 @@ function saveP(i,pl)
 		obj.o = true;
 	} else {
 		if (pl) {
+			plJson[i].ps.forEach((_,idx) => {
+				const trField = gId(`pl${i}tr${idx}`);
+				if (trField) pleTr(i, idx, trField); // make sure transition time is not longer than duration
+			});
 			obj.playlist = plJson[i];
 			obj.on = true;
 			obj.o = true;
@@ -3444,8 +3466,8 @@ function reportUpgradeEvent(info, oldVersion, alwaysReport) {
 		})
 		.catch(e => {
 			console.log('Failed to report upgrade', e);
-			showToast('Report failed. Please try again later.', true);
-			// Do NOT update version info on error - user will be prompted again
+			showToast('Report failed', true);
+			updateVersionInfo(info.ver, false, !!alwaysReport);
 		});
 }
 

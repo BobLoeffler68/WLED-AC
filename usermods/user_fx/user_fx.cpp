@@ -1480,9 +1480,11 @@ static const char _data_FX_MODE_DISSOLVEPLUS[] PROGMEM = "Dissolve Plus@Repeat s
 /*
 /  Perlinscape effect - a Perlin Landscape
 *   Created by stepko as part of Stepko Land on soulmatelights.com
-*   Adapted to WLED by Bob Loeffler
+*   Adapted to WLED by Bob Loeffler with additional features
 *   First slider (speed)
-*   It does not use a color palette, but may be user selectable in the future.
+*   Second slider is the X multiplier
+*   Third slider is the Y multiplier
+*   It does not use a color palette.
 */
 static void mode_2D_perlinscape(void) {
   if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC;  // not a 2D set-up
@@ -1491,13 +1493,16 @@ static void mode_2D_perlinscape(void) {
   if (!SEGENV.allocateData(width * height)) FX_FALLBACK_STATIC;  // allocation failed
 
   uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 20, 1));
+  uint8_t Xmultiplier = (map(SEGMENT.custom1, 0, 255, 0, 64));
+  uint8_t Ymultiplier = (map(SEGMENT.custom2, 0, 255, 0, 64));
+
   for (byte x = 0; x < width; x++) {
     for (byte y = 0; y < height; y++) {
-      SEGMENT.setPixelColorXY(x, y, perlin8(x * 20, y * 20, t), perlin8(x * 20, y * 20 + t), perlin8(x * 20 + t, y * 20));
+      SEGMENT.setPixelColorXY(x, y, perlin8(x * Xmultiplier, y * Ymultiplier, t), perlin8(x * Xmultiplier, y * Ymultiplier + t), perlin8(x * Xmultiplier + t, y * Ymultiplier));
     }
   }
 }
-static const char _data_FX_MODE_2D_PERLINSCAPE[] PROGMEM = "Perlinscape@!;;;2;";
+static const char _data_FX_MODE_2D_PERLINSCAPE[] PROGMEM = "Perlinscape@!,,X multiplier,Y multiplier;;;2;";
 
 
 /*

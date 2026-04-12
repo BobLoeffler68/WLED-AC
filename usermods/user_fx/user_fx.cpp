@@ -1403,7 +1403,7 @@ static void mode_dissolveplus(void) {
             if (fadeRate > 0) {  // fade progressively towards the background color by the fadeRate value
               uint32_t c = color_blend(pixels[i], SEGCOLOR(1), fadeRate << 2);
               pixels[i] = c;
-            } else {  // fade to the background color quickly if 0 or 1 is selected on custom3 slider)
+            } else {  // quickly fade to the background color if 0 is selected on custom3 slider)
               pixels[i] = storedBg;
             }
             break;

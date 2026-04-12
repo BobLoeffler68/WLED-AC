@@ -1278,7 +1278,6 @@ static void mode_morsecode(void) {
 static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color mode,Color by Word,Punctuation,EndOfMessage;;!;1;sx=192,c3=8,o1=1,o2=1";
 
 
-
 /*
  * Dissolve Plus
  *   Modifications to original Dissolve effect by Bob Loeffler
@@ -1289,6 +1288,7 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
  *     If set to max value (255), the effect will not redraw any LEDs, so this can be used with a playlist and physical button to,
  *     for example, restart the animation by unchecking checkbox 3 in a preset and then checking it again with another preset.
  *     This was requested in https://github.com/wled/WLED/issues/1044
+ *   slider 5 is for the rate at which the LEDs will fade away (if set to 0 or 1, the original Dissolve FX rate --immediately-- will be used)
  *   checkbox 1 is to select random colors
  *   checkbox 2 is to force it to wait until all LEDs have been completely filled or dissolved
  *   checkbox 3 is to select whether one last LED will stay lit (like a "last one standing" or "sole survivor")
@@ -1399,7 +1399,13 @@ static void mode_dissolveplus(void) {
           }
         } else {  //dissolve to secondary/background color
           if (pixels[i] != storedBg) {
-            pixels[i] = storedBg;
+            uint8_t fadeRate = SEGENV.custom3;  // (0 - 31)
+            if (fadeRate > 0) {  // fade progressively towards the background color by the fadeRate value
+              uint32_t c = color_blend(pixels[i], SEGCOLOR(1), fadeRate << 2);
+              pixels[i] = c;
+            } else {  // fade to the background color quickly if 0 or 1 is selected on custom3 slider)
+              pixels[i] = storedBg;
+            }
             break;
           }
         }
@@ -1474,7 +1480,7 @@ static void mode_dissolveplus(void) {
 #undef SET_DONE
 #undef SET_PREV_LAST_ONE
 
-static const char _data_FX_MODE_DISSOLVEPLUS[] PROGMEM = "Dissolve Plus@Repeat speed,Dissolve speed,Fill speed,Last one delay,,Random,Complete,Last one;!,!;!";
+static const char _data_FX_MODE_DISSOLVEPLUS[] PROGMEM = "Dissolve Plus@Repeat speed,Dissolve speed,Fill speed,Last one delay,Fade rate,Random,Complete,Last one;!,!;!";
 
 
 /*

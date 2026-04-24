@@ -1622,19 +1622,14 @@ static const char _data_FX_MODE_2D_SOLARFLARE[] PROGMEM = "Solar Flare@Speed,Int
   by Bob Loeffler
   Particle System by DedeHai (Damian Schneider)
 */
-void mode_particle1Dswinger(void) {
+static void mode_particle1Dswinger(void) {
   ParticleSystem1D *PartSys = nullptr;
-
-  //const uint8_t refresh_hz = map(SEGMENT.speed, 0, 255, 20, 80);
-  const unsigned refresh_ms = 1000;  // / refresh_hz;
-
   if (SEGMENT.call == 0) { // initialization
-    if (!initParticleSystem1D(PartSys, 1))
+    if (!initParticleSystem1D(PartSys, 1, 191, 2, false)) // init
       FX_FALLBACK_STATIC; // allocation failed or is single pixel
-    PartSys->setKillOutOfBounds(true);
-    PartSys->setWallHardness(150);
-    PartSys->setParticleSize(1);
-    SEGENV.step = 0;
+    SEGENV.aux0 = 0xFFFF; // invalidate
+    //*PartSys->PSdataEnd = 1; // huedir
+    //*(PartSys->PSdataEnd + 1) = 1; // sizedir
   }
   else
     PartSys = reinterpret_cast<ParticleSystem1D *>(SEGENV.data); // if not first call, just set the pointer to the PS
@@ -1643,34 +1638,198 @@ void mode_particle1Dswinger(void) {
 
   // Particle System settings
   PartSys->updateSystem(); // update system properties (dimensions and data pointers)
-  PartSys->setBounce(false);
-  PartSys->setMotionBlur(SEGMENT.custom2); // anable motion blur
-  int32_t gravity = -((int32_t)SEGMENT.custom3 - 16);  // gravity setting, 0-15 is positive (down), 17 - 31 is negative (up)
-  PartSys->setGravity(abs(gravity)); // use reversgrav setting to invert gravity (for proper 'floor' and out of bounds handling)
-
-  PartSys->sources[0].source.hue = SEGMENT.aux0; // hw_random16();
-  PartSys->sources[0].var = 20;
-  PartSys->sources[0].minLife = 300;
-  PartSys->sources[0].maxLife = 500;
-  PartSys->sources[0].source.x = map(SEGMENT.custom1, 0 , 255, 0, PartSys->maxX); // spray position
-  PartSys->sources[0].v = map(SEGMENT.speed, 0 , 255, -127 + PartSys->sources[0].var, 127 - PartSys->sources[0].var); // particle emit speed
-  PartSys->sources[0].sourceFlags.reversegrav = gravity < 0 ? true : false;
-
-  if ((strip.now - SEGENV.step) >= refresh_ms) {
-    PartSys->sprayEmit(PartSys->sources[0]); // emit a particle
-    SEGMENT.aux0++; // increment hue
-    SEGENV.step = strip.now;
-  }
-
-  //update color settings
-  PartSys->setColorByAge(SEGMENT.check1); // overruled by 'color by position'
   PartSys->setColorByPosition(SEGMENT.check3);
-  for (uint i = 0; i < PartSys->usedParticles; i++) {
-    PartSys->particleFlags[i].reversegrav = PartSys->sources[0].sourceFlags.reversegrav; // update gravity direction
+  PartSys->setMotionBlur(7 + ((SEGMENT.custom1) << 3)); // anable motion blur
+  int32_t gravity = -((int32_t)SEGMENT.custom3 - 16);  // gravity setting, 0-15 is positive (down), 17 - 31 is negative (up)
+  PartSys->setGravity(abs(gravity)); // use reversgrav setting to invert gravity (for proper 'floor' and out of bounce handling)
+
+  uint32_t numParticles = 1;  //1 + map(SEGMENT.intensity, 0, 255, 0, PartSys->usedParticles / (1 + (SEGMENT.custom1 >> 5))); // depends on intensity and particle size (custom1), minimum 1
+  numParticles = min(numParticles, PartSys->usedParticles); // limit to available particles
+  int32_t huestep = 1 + ((((uint32_t)SEGMENT.custom2 << 19) / numParticles) >> 16); // hue increment
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3 + SEGMENT.check3;
+  if (SEGENV.aux0 != settingssum) { // settings changed changed, update
+    SEGENV.step = (PartSys->maxX + (PS_P_RADIUS_1D << 6)) / numParticles; // spacing between particles
+    SEGENV.step = (SEGENV.step / PS_P_RADIUS_1D) * PS_P_RADIUS_1D; // round down to nearest multiple of particle subpixel unit to align to pixel grid (makes them move in union)
+    PartSys->setParticleSize(0);
+
+    for (int32_t i = 0; i < (int32_t)PartSys->usedParticles; i++) {
+      PartSys->particles[i].x = (i - 1) * SEGENV.step; // distribute evenly (starts out of frame for i=0)
+      PartSys->particles[i].vx =  SEGMENT.speed >> 2;
+      //PartSys->advPartProps[i].size = SEGMENT.custom1;
+      if (SEGMENT.custom2 < 255)
+        PartSys->particles[i].hue = i * huestep; // gradient distribution
+      else
+        PartSys->particles[i].hue = hw_random16();
+    }
+    SEGENV.aux0 = settingssum;
   }
+
+  if (PartSys->particles[0].x ) {
+
+  }
+
+  // wrap around (cannot use particle system wrap if distributing colors manually, it also wraps rendering which does not look good)
+  for (int32_t i = (int32_t)PartSys->usedParticles - 1; i >= 0; i--) { // check from the back, last particle wraps first, multiple particles can overrun per frame
+    if (PartSys->particles[i].x > PartSys->maxX + PS_P_RADIUS_1D) { // + PartSys->advPartProps[i].size) { // wrap it around
+      //uint32_t nextindex = (i + 1) % PartSys->usedParticles;
+      PartSys->particles[i].x = 0; PartSys->particles[i].x - (int)SEGENV.step;
+      if (SEGMENT.custom2 < 255)
+        PartSys->particles[i].hue = PartSys->particles[i].hue - huestep;
+      else
+        PartSys->particles[i].hue = hw_random16();
+    }
+    PartSys->particles[i].ttl = 300; // reset ttl, cannot use perpetual because memmanager can change pointer at any time
+  }
+
   PartSys->update(); // update and render
 }
-static const char _data_FX_MODE_PS_1DSWINGER[] PROGMEM = "PS Swinger 1D@Speed(+/-),!,Position,Blur,Gravity(+/-),AgeColor,,Position Color;,!;!;1;sx=200,ix=220,c1=0,c2=0";
+static const char _data_FX_MODE_PS_1DSWINGER[] PROGMEM = "PS Swinger@!,Density,Blur,Hue,Gravity(+/-),,,Position Color;,!;!;1;pal=11,sx=50,c2=5,c3=0";
+
+
+/*
+/  Pendulum effect
+*   by Bob Loeffler and a little claude.ai
+*   First slider (speed) is for the speed of the pendulum LED going back and forth. (0 = random speed)
+*   Second slider (intensity) is for the X offset.  In the middle means the center of the pendulum will be in the middle
+*     of the LED strip. Moving the slider left will move the pendulum to the left, etc. (0 = random X offset)
+*   Third slider (pause delay) is for how long the effect will pause before restarting the pendulum movement.
+*   Fourth slider (smear fade rate) is for how quickly the smeared LEDs will fade to the background color. 0 = no fading
+*   Fifth slider (gravity/damping) is for how much the pendulum movement will be dampened due to gravity or friction. (0 = random damping)
+*   Checkbox1 is for randomly selected palettes. *** But this requires loadPalette() to be a public member. I will create a PR to do that. ***
+*   Checkbox2 is to enable the smear option which will not overwrite the LEDs with the background color between pendulum swings.
+*   aux0 stores the settings checksum to detect changes.
+*/
+#define PENDULUM_MIN_AMPLITUDE 0.4f
+#define PHASE_STOPPED 0
+#define PHASE_SWING   1
+#define PHASE_PAUSED  2
+
+static void mode_pendulum(void) {
+  if (!SEGENV.allocateData(38)) FX_FALLBACK_STATIC;
+
+  float    *currentPos = (float*)(SEGENV.data);
+  float    *fromPos = (float*)(SEGENV.data + 4);
+  float    *toPos = (float*)(SEGENV.data + 8);
+  float    *amplitude = (float*)(SEGENV.data + 12);
+  uint32_t *swingStart = (uint32_t*)(SEGENV.data + 16);
+  uint32_t *swingDuration = (uint32_t*)(SEGENV.data + 20);
+  uint32_t *pauseStart = (uint32_t*)(SEGENV.data + 24);
+  uint8_t  *phase = SEGENV.data + 28;  // 0 = STOPPED, 1 = SWING, 2 = PAUSED
+  uint8_t  *goingLeft = SEGENV.data + 29;
+  uint16_t *swing_time = (uint16_t*)(SEGENV.data + 30);
+  uint16_t *offsetX = (uint16_t*)(SEGENV.data + 32);
+  float    *damping = (float*)(SEGENV.data + 34);
+  uint8_t  *paletteIndex = SEGENV.data + 38;
+  //CRGBPalette16 *storedPalette = (CRGBPalette16*)(SEGENV.data + 39);
+
+  uint16_t segCenter = SEGLEN / 2;
+  uint16_t pause_delay = map(SEGMENT.custom2, 0, 255, 500, 15000);
+  bool smearMode = SEGMENT.check2;
+  uint16_t cutoff = SEGLEN * .10f;  // used for setting the allowable range for offsetX
+
+  // Check if settings changed
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3 + SEGMENT.check1;
+  bool settingsChanged = (SEGENV.aux0 != settingssum);
+
+  // Init on first call or in stopped phase or if the settings have changed)
+  if (SEGENV.call == 0 || *phase == PHASE_STOPPED || settingsChanged) {
+    // Pendulum speed (0 = random)
+    const uint8_t speed = SEGMENT.speed;
+    if (speed == 0) *swing_time = hw_random16(1000, 2400);
+    else *swing_time = map(speed, 1, 255, 2400, 400);
+
+    // Starting X offset (0 = random)
+    const uint8_t intensity = SEGMENT.intensity;
+    if (intensity == 0) *offsetX = hw_random16(cutoff, SEGLEN-cutoff);
+    else *offsetX = map(intensity, 1, 255, cutoff, SEGLEN-cutoff);
+
+    // Amount of damping (0 = random)
+    const uint8_t custom3 = SEGMENT.custom3;
+    if (custom3 == 0) *damping = hw_random8(75, 95) / 100.0f;
+    else *damping = map(custom3, 1, 31, 95, 75) / 100.0f;
+
+    if (*offsetX < segCenter)
+      *amplitude = *offsetX;
+    else  
+      *amplitude = MIN(*offsetX, SEGLEN - 1 - *offsetX);
+
+    *fromPos       = *offsetX;
+    *toPos         = *offsetX - *amplitude;
+    *swingStart    = strip.now;
+    *swingDuration = *swing_time;
+    *phase         = PHASE_SWING;
+    *goingLeft     = 1;
+    *currentPos    = *offsetX;
+/*
+    if (SEGMENT.check1) {
+      uint8_t randIdx = hw_random8(0, getPaletteCount());
+      SEGMENT.loadPalette(*storedPalette, randIdx);   // fill storedPalette with the random palette
+    } else {
+      SEGMENT.loadPalette(*storedPalette, SEGMENT.palette);  // fill with user-selected palette
+    }
+*/
+    SEGMENT.fill(SEGCOLOR(1));  // always clear to background color before starting the pendulum
+    SEGENV.aux0 = settingssum;
+  }
+ 
+  if (*phase == PHASE_SWING) {
+    uint32_t elapsed = strip.now - *swingStart;
+    float t = (float)elapsed / (float)(*swingDuration);
+    if (t > 1.0f) t = 1.0f;
+ 
+    float cosT = cosf(t * (float)M_PI);
+    float frac = (1.0f - cosT) * 0.5f;
+    *currentPos = *fromPos + (*toPos - *fromPos) * frac;
+ 
+    if (elapsed >= *swingDuration) {
+      *amplitude *= *damping;
+      if (*amplitude < PENDULUM_MIN_AMPLITUDE) {  // stop and then go into pause phase
+        *currentPos = *offsetX;
+        *phase      = PHASE_PAUSED;
+        *pauseStart = strip.now;
+      } else {                                    // go in the opposite direction
+        float nextTo   = *offsetX + (*goingLeft ? *amplitude : -*amplitude);
+        *fromPos       = *toPos;
+        *toPos         = nextTo;
+        *goingLeft     = !(*goingLeft);
+        *swingStart    = strip.now;
+        uint32_t dur   = (uint32_t)(*swing_time * (*amplitude / ((SEGLEN - 1) / 2.0f)));
+        *swingDuration = (dur < 200) ? 200 : dur;
+      }
+    }
+  } else if (*phase == PHASE_PAUSED) {
+    *currentPos = *offsetX;
+    if (strip.now - *pauseStart >= pause_delay) {
+      *phase = PHASE_STOPPED;  // trigger re-initialize
+    }
+  }
+ 
+  if (!smearMode) SEGMENT.fill(SEGCOLOR(1));  // Clear to the background color if not in smear mode
+  
+  uint8_t fadeRate = SEGENV.custom1 >> 3;
+  if (smearMode && fadeRate > 0) SEGMENT.fadeToSecondaryBy(fadeRate);
+ 
+  int   lo  = (int)(*currentPos);
+  float sub = *currentPos - (float)lo;
+  int   hi  = lo + 1;
+
+  // check which palette to use and then select a color
+  //uint8_t savedPalette = SEGMENT.palette;
+  //if (SEGMENT.check1) SEGMENT.palette = *paletteIndex;
+  uint32_t color = SEGMENT.color_from_palette((uint8_t)((*currentPos / (SEGLEN - 1)) * 255), false, PALETTE_SOLID_WRAP, 0);
+  //if (SEGMENT.check1) SEGMENT.palette = savedPalette;
+
+  uint8_t  r = R(color), g = G(color), b = B(color);
+ 
+  if (lo >= 0 && lo < SEGLEN) {
+    float br = 1.0f - sub;
+    SEGMENT.setPixelColor(lo, (uint8_t)(r*br), (uint8_t)(g*br), (uint8_t)(b*br));
+  }
+  if (hi >= 0 && hi < SEGLEN && sub > 0.01f) {
+    SEGMENT.setPixelColor(hi, (uint8_t)(r*sub), (uint8_t)(g*sub), (uint8_t)(b*sub));
+  }
+}
+static const char _data_FX_MODE_PENDULUM[] PROGMEM = "Pendulum@Speed (0=random),X Offset (0=random),Smear Fade rate,Pause delay,Damping/Gravity (0=random),Random Palette,Smear,;!,!;!;1;c2=32,c3=4";
 
 
 
@@ -1693,6 +1852,8 @@ class UserFxUsermod : public Usermod {
     strip.addEffect(255, &mode_2D_solarflare, _data_FX_MODE_2D_SOLARFLARE);
 
     strip.addEffect(255, &mode_particle1Dswinger, _data_FX_MODE_PS_1DSWINGER);
+    strip.addEffect(255, &mode_pendulum, _data_FX_MODE_PENDULUM);
+    
     
     ////////////////////////////////////////
     //  add your effect function(s) here  //

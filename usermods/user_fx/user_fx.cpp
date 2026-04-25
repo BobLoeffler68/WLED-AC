@@ -1698,6 +1698,7 @@ static const char _data_FX_MODE_PS_1DSWINGER[] PROGMEM = "PS Swinger@!,Density,B
 *   Checkbox1 is for randomly selected palettes. *** But this requires loadPalette() to be a public member. I will create a PR to do that. ***
 *   Checkbox2 is to enable the smear option which will not overwrite the LEDs with the background color between pendulum swings.
 *   aux0 stores the settings checksum to detect changes.
+*   aux1 stores the selected palette id to detect a change in palettes.
 */
 #define PENDULUM_MIN_AMPLITUDE 0.4f
 #define PHASE_STOPPED 0
@@ -1705,7 +1706,7 @@ static const char _data_FX_MODE_PS_1DSWINGER[] PROGMEM = "PS Swinger@!,Density,B
 #define PHASE_PAUSED  2
 
 static void mode_pendulum(void) {
-  if (!SEGENV.allocateData(38)) FX_FALLBACK_STATIC;
+  if (!SEGENV.allocateData(87)) FX_FALLBACK_STATIC;
 
   float    *currentPos = (float*)(SEGENV.data);
   float    *fromPos = (float*)(SEGENV.data + 4);
@@ -1720,19 +1721,22 @@ static void mode_pendulum(void) {
   uint16_t *offsetX = (uint16_t*)(SEGENV.data + 32);
   float    *damping = (float*)(SEGENV.data + 34);
   uint8_t  *paletteIndex = SEGENV.data + 38;
-  //CRGBPalette16 *storedPalette = (CRGBPalette16*)(SEGENV.data + 39);
+  CRGBPalette16 *storedPalette = (CRGBPalette16*)(SEGENV.data + 39);
 
   uint16_t segCenter = SEGLEN / 2;
   uint16_t pause_delay = map(SEGMENT.custom2, 0, 255, 500, 15000);
   bool smearMode = SEGMENT.check2;
   uint16_t cutoff = SEGLEN * .10f;  // used for setting the allowable range for offsetX
 
+  uint8_t paletteSelected = SEGMENT.palette;
+  bool paletteChanged = (SEGENV.aux1 != paletteSelected);
+
   // Check if settings changed
   uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3 + SEGMENT.check1;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
 
-  // Init on first call or in stopped phase or if the settings have changed)
-  if (SEGENV.call == 0 || *phase == PHASE_STOPPED || settingsChanged) {
+  // Init on first call or in stopped phase or if the settings have changed or if the user selected a different palette and we are not in Random Palette mode
+  if (SEGENV.call == 0 || *phase == PHASE_STOPPED || settingsChanged || (paletteChanged && !SEGMENT.check1)) {
     // Pendulum speed (0 = random)
     const uint8_t speed = SEGMENT.speed;
     if (speed == 0) *swing_time = hw_random16(1000, 2400);
@@ -1760,16 +1764,17 @@ static void mode_pendulum(void) {
     *phase         = PHASE_SWING;
     *goingLeft     = 1;
     *currentPos    = *offsetX;
-/*
+
     if (SEGMENT.check1) {
       uint8_t randIdx = hw_random8(0, getPaletteCount());
       SEGMENT.loadPalette(*storedPalette, randIdx);   // fill storedPalette with the random palette
     } else {
       SEGMENT.loadPalette(*storedPalette, SEGMENT.palette);  // fill with user-selected palette
     }
-*/
+
     SEGMENT.fill(SEGCOLOR(1));  // always clear to background color before starting the pendulum
     SEGENV.aux0 = settingssum;
+    SEGENV.aux1 = paletteSelected;
   }
  
   if (*phase == PHASE_SWING) {
@@ -1804,7 +1809,7 @@ static void mode_pendulum(void) {
     }
   }
  
-  if (!smearMode) SEGMENT.fill(SEGCOLOR(1));  // Clear to the background color if not in smear mode
+  if (!smearMode) SEGMENT.fill(SEGCOLOR(1));  // Clear to the background color if not in Smear mode
   
   uint8_t fadeRate = SEGENV.custom1 >> 3;
   if (smearMode && fadeRate > 0) SEGMENT.fadeToSecondaryBy(fadeRate);
@@ -1813,12 +1818,7 @@ static void mode_pendulum(void) {
   float sub = *currentPos - (float)lo;
   int   hi  = lo + 1;
 
-  // check which palette to use and then select a color
-  //uint8_t savedPalette = SEGMENT.palette;
-  //if (SEGMENT.check1) SEGMENT.palette = *paletteIndex;
-  uint32_t color = SEGMENT.color_from_palette((uint8_t)((*currentPos / (SEGLEN - 1)) * 255), false, PALETTE_SOLID_WRAP, 0);
-  //if (SEGMENT.check1) SEGMENT.palette = savedPalette;
-
+  uint32_t color = ColorFromPalette(*storedPalette, (uint8_t)((*currentPos / (SEGLEN - 1)) * 255), 255, LINEARBLEND);
   uint8_t  r = R(color), g = G(color), b = B(color);
  
   if (lo >= 0 && lo < SEGLEN) {

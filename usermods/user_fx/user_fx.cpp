@@ -1664,20 +1664,24 @@ static void mode_particle1Dswinger(void) {
     SEGENV.aux0 = settingssum;
   }
 
-  if (PartSys->particles[0].x ) {
-
-  }
-
   // wrap around (cannot use particle system wrap if distributing colors manually, it also wraps rendering which does not look good)
   for (int32_t i = (int32_t)PartSys->usedParticles - 1; i >= 0; i--) { // check from the back, last particle wraps first, multiple particles can overrun per frame
     if (PartSys->particles[i].x > PartSys->maxX + PS_P_RADIUS_1D) { // + PartSys->advPartProps[i].size) { // wrap it around
       //uint32_t nextindex = (i + 1) % PartSys->usedParticles;
-      PartSys->particles[i].x = 0; PartSys->particles[i].x - (int)SEGENV.step;
-      if (SEGMENT.custom2 < 255)
-        PartSys->particles[i].hue = PartSys->particles[i].hue - huestep;
-      else
-        PartSys->particles[i].hue = hw_random16();
+      PartSys->particles[i].x = 0;
+      PartSys->particles[i].x - (int)SEGENV.step;
     }
+    if (PartSys->particles[i].x < 0) { // + PartSys->advPartProps[i].size) { // wrap it around
+      //uint32_t nextindex = (i + 1) % PartSys->usedParticles;
+      PartSys->particles[i].x = PartSys->maxX - PS_P_RADIUS_1D;
+       PartSys->particles[i].x + (int)SEGENV.step;
+    }
+    
+    if (SEGMENT.custom2 < 255)
+      PartSys->particles[i].hue = PartSys->particles[i].hue - huestep;
+    else
+      PartSys->particles[i].hue = hw_random16();
+
     PartSys->particles[i].ttl = 300; // reset ttl, cannot use perpetual because memmanager can change pointer at any time
   }
 

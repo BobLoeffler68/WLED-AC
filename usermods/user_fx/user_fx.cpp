@@ -1483,31 +1483,94 @@ static const char _data_FX_MODE_DISSOLVEPLUS[] PROGMEM = "Dissolve Plus@Repeat s
 
 
 /*
-/  Perlinscape effect - a Perlin Landscape
+/  Perlinscape effect - a Perlin noise Landscape
 *   Created by stepko as part of Stepko Land on soulmatelights.com
-*   Adapted to WLED by Bob Loeffler with additional features
-*   First slider (speed)
+*   Adapted to WLED by Bob Loeffler with additional features (and help from Claude)
+*   First slider is the speed
 *   Second slider is the X multiplier
 *   Third slider is the Y multiplier
-*   It does not use a color palette.
+*   First checkbox will use the palette that is selected
+*   Second checkbox will rotate the image
+*   Third checkbox will randomize the horizonal and vertical directions
 */
 static void mode_2D_perlinscape(void) {
   if (!strip.isMatrix || !SEGMENT.is2D()) FX_FALLBACK_STATIC;  // not a 2D set-up
   const uint16_t width = SEG_W;
   const uint16_t height = SEG_H;
-  if (!SEGENV.allocateData(width * height)) FX_FALLBACK_STATIC;  // allocation failed
+  if (!SEGENV.allocateData(5 * sizeof(float) + width * height)) FX_FALLBACK_STATIC;
+  
+  uint32_t speedDiv = map(SEGMENT.speed, 0, 255, 20, 1);
+  uint32_t t        = strip.now / speedDiv;
+  uint8_t  Xmult    = map(SEGMENT.custom1, 0, 255, 0, 64);
+  uint8_t  Ymult    = map(SEGMENT.custom2, 0, 255, 0, 64);
 
-  uint32_t t = strip.now / (map(SEGMENT.speed, 0, 255, 20, 1));
-  uint8_t Xmultiplier = (map(SEGMENT.custom1, 0, 255, 0, 64));
-  uint8_t Ymultiplier = (map(SEGMENT.custom2, 0, 255, 0, 64));
+  float *offX  = reinterpret_cast<float*>(SEGENV.data) + 0;
+  float *offY  = reinterpret_cast<float*>(SEGENV.data) + 1;
+  float *stepX = reinterpret_cast<float*>(SEGENV.data) + 2;
+  float *stepY = reinterpret_cast<float*>(SEGENV.data) + 3;
+  float *prevT = reinterpret_cast<float*>(SEGENV.data) + 4;
+
+  if (SEGENV.call == 0) {
+    SEGENV.aux0 = hw_random16(5000, 10000);
+    SEGENV.aux1 = 0b00;
+    *offX  = 0.0f;
+    *offY  = 0.0f;
+    *stepX = 1.0f;
+    *stepY = 1.0f;
+    *prevT = (float)t;
+  }
+
+  if (SEGMENT.check3 && (strip.now - SEGENV.step > SEGENV.aux0)) {
+    SEGENV.aux0 = hw_random16(5000, 10000);
+    SEGENV.aux1 = hw_random8(4);
+    SEGENV.step = strip.now;
+  }
+
+  bool flipX = SEGMENT.check3 ? (SEGENV.aux1 & 0x01) : false;
+  bool flipY = SEGMENT.check3 ? (SEGENV.aux1 & 0x02) : false;
+
+  float targetX = flipX ? -1.0f : 1.0f;
+  float targetY = flipY ? -1.0f : 1.0f;
+  *stepX += (targetX - *stepX) * 0.05f;
+  *stepY += (targetY - *stepY) * 0.05f;
+
+  float dt = (float)t - *prevT;
+  *offX += *stepX * dt;
+  *offY += *stepY * dt;
+  *prevT = (float)t;
+
+  int32_t tX = (int32_t)*offX;
+  int32_t tY = (int32_t)*offY;
+
+  // Rotation
+  float cosA = 1.0f, sinA = 0.0f;
+  float cx = width * 0.5f;
+  float cy = height * 0.5f;
+
+  if (SEGMENT.check2) {
+    float angle = strip.now / 5000.0f;
+    cosA = cosf(angle);
+    sinA = sinf(angle);
+  }
 
   for (byte x = 0; x < width; x++) {
     for (byte y = 0; y < height; y++) {
-      SEGMENT.setPixelColorXY(x, y, perlin8(x * Xmultiplier, y * Ymultiplier, t), perlin8(x * Xmultiplier, y * Ymultiplier + t), perlin8(x * Xmultiplier + t, y * Ymultiplier));
+      float rx = cosA * (x - cx) - sinA * (y - cy) + cx;
+      float ry = sinA * (x - cx) + cosA * (y - cy) + cy;
+
+      if (SEGMENT.check1) {
+        // Palette mode
+        uint8_t paletteIndex = perlin8(rx * Xmult, ry * Ymult, t);
+        uint8_t brightness   = perlin8(rx * Xmult + tX, ry * Ymult + tY);
+        SEGMENT.setPixelColorXY(x, y, SEGMENT.color_from_palette(paletteIndex, false, PALETTE_SOLID_WRAP, brightness));
+      } else {
+        // Raw RGB mode
+        SEGMENT.setPixelColorXY(x, y, perlin8(rx * Xmult, ry * Ymult, t), perlin8(rx * Xmult, ry * Ymult + tY), perlin8(rx * Xmult + tX, ry * Ymult));
+      }
     }
   }
-}
-static const char _data_FX_MODE_2D_PERLINSCAPE[] PROGMEM = "Perlinscape@!,,X multiplier,Y multiplier;;;2;";
+}  
+static const char _data_FX_MODE_2D_PERLINSCAPE[] PROGMEM = "Perlinscape@!,,X multiplier,Y multiplier,,Palettes,Rotation,Random direction;;!;2;";
 
 
 /*

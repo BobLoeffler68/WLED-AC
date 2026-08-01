@@ -1871,10 +1871,19 @@ static const char _data_FX_MODE_PENDULUM[] PROGMEM = "Pendulum@Speed (0=random),
 */
 
 
-#define PENDULUM_MIN_AMPLITUDE_SUBPX ((PS_P_RADIUS_1D * 2) / 5)  // ~0.4 px in sub-pixel units
-//#define PHASE_STOPPED 0
-//#define PHASE_SWING   1
-//#define PHASE_PAUSED  2
+/*
+/  PS Pendulum effect (uses the Particle System)
+*   by Bob Loeffler and claude.ai   Particle System by dedehai
+*   First slider (speed) is for the speed of the pendulum LED going back and forth. (0 = random speed)
+*   Second slider (intensity) is for the X offset.  In the middle means the center of the pendulum will be in the middle of the LED strip.
+*     Moving the slider left will move the pendulum to the left, etc. (0 = random X offset)
+*   Third slider (blur) is for how much of a trail the pendulum will leave.
+*   Fourth slider (pause/delay) is for how long the effect will pause before restarting the pendulum movement.
+*   Fifth slider (gravity/damping) is for how much the pendulum movement will be dampened due to gravity or friction. (0 = random damping)
+*   Checkbox1 will select the LED color based on it's position on the strip.
+*   aux0 stores the settings checksum to detect changes.
+*/
+#define PENDULUM_MIN_AMPLITUDE_SUBPX ((PS_P_RADIUS_1D * 2) / 5)
 
 // Custom pendulum state, stored in the extra bytes after the particle system's own data
 typedef struct {

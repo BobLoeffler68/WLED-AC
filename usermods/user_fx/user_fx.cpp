@@ -1290,6 +1290,7 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
 *   Fourth slider (pause/delay) is for how long the effect will pause before restarting the pendulum movement.
 *   Fifth slider (gravity/damping) is for how much the pendulum movement will be dampened due to gravity or friction. (0 = random damping)
 *   Checkbox1 will select the LED color based on it's position on the strip.
+*   Checkbox2 will make the pendulum swing forever (a perpetual pendulum).
 *   aux0 stores the settings checksum to detect changes.
 */
 #define PENDULUM_MIN_AMPLITUDE_SUBPX ((PS_P_RADIUS_1D * 2) / 5)
@@ -1340,7 +1341,7 @@ void mode_particlePendulum(void) {
   PartSys->setMotionBlur(SEGMENT.custom1); // amount of blurring
   PartSys->setColorByPosition(SEGMENT.check1);
 
-  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3;
+  uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3 + SEGMENT.check2;
   bool settingsChanged = (SEGENV.aux0 != settingssum);
 
   if (SEGENV.call == 0 || pd->phase == PHASE_STOPPED || settingsChanged) {
@@ -1394,9 +1395,12 @@ void mode_particlePendulum(void) {
     pd->currentPos = pd->fromPos + (int32_t)(((int64_t)delta * frac16) / 32767);
 
     if (elapsed >= pd->swingDuration) {
-      pd->amplitude = (pd->amplitude * (int32_t)pd->damping256) >> 8;  // (Q8 fixed-point)
+      bool perpetual = SEGMENT.check2;
+      if (!perpetual) {
+        pd->amplitude = (pd->amplitude * (int32_t)pd->damping256) >> 8;  // (Q8 fixed-point)
+      }
 
-      if (pd->amplitude < PENDULUM_MIN_AMPLITUDE_SUBPX) {
+      if (!perpetual && pd->amplitude < PENDULUM_MIN_AMPLITUDE_SUBPX) {
         pd->currentPos = (int32_t)pd->offsetX * PS_P_RADIUS_1D;
         pd->phase      = PHASE_PAUSED;
         pd->pauseStart = strip.now;
@@ -1427,7 +1431,7 @@ void mode_particlePendulum(void) {
 
   PartSys->update();
 }
-static const char _data_FX_MODE_PS_PENDULUM[] PROGMEM = "PS Pendulum@Speed (0=random),X Offset (0=random),Blur,Pause/Delay,Damping/Gravity (0=random), Position Color;!,!;!;1;c2=32,c3=4,o1=1";
+static const char _data_FX_MODE_PS_PENDULUM[] PROGMEM = "PS Pendulum@Speed (0=random),X Offset (0=random),Blur,Pause/Delay,Damping/Gravity (0=random), Position Color, Perpetual;!,!;!;1;c2=32,c3=4,o1=1";
 
 
 /////////////////////

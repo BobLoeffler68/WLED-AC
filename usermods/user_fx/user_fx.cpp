@@ -1297,11 +1297,11 @@ static const char _data_FX_MODE_MORSECODE[] PROGMEM = "Morse Code@Speed,,,,Color
 
 // Custom pendulum state, stored in the extra bytes after the particle system's own data
 typedef struct {
-  int32_t  currentPos;     // sub-pixel position (scaled by PS_P_RADIUS_1D) — matches particle.x units directly
+  int32_t  currentPos;     // sub-pixel position (scaled by PS_P_RADIUS_1D); matches particle.x units directly
   int32_t  fromPos;
   int32_t  toPos;
   int32_t  amplitude;      // sub-pixel
-  uint16_t damping256;     // Q8 fixed point: 0-256 represents 0.0-1.0
+  uint16_t damping256;     // Q8 fixed point: 0-255 represents 0.0-1.0
   uint32_t swingStart;
   uint32_t swingDuration;
   uint32_t pauseStart;
@@ -1328,7 +1328,7 @@ void mode_particlePendulum(void) {
 
   uint16_t segLen      = SEGLEN;
   uint16_t segCenter   = segLen / 2;
-  uint16_t pause_delay = map(SEGMENT.custom2, 0, 255, 500, 15000);
+  uint16_t pause_delay = map(SEGMENT.custom2, 0, 255, 500, 20000);
   uint16_t cutoff      = segLen / 10;
 
   constexpr uint8_t PHASE_STOPPED = 0U;
@@ -1338,7 +1338,12 @@ void mode_particlePendulum(void) {
   PartSys->setUsedParticles(0);
   PartSys->setWrap(false);
   PartSys->setBounce(false);
-  PartSys->setMotionBlur(SEGMENT.custom1); // amount of blurring
+
+  uint32_t loss = 255 - SEGMENT.custom1; // amount of blurring; using loss spreads out the blur across the whole 1-255 range.
+  loss = (loss * loss) / 255;            // without this, most blur occurred near the highest setting; 0 = no blurring
+  if (SEGMENT.custom1 > 0 && loss < 2) loss = 2;
+  PartSys->setMotionBlur(255 - loss);
+
   PartSys->setColorByPosition(SEGMENT.check1);
 
   uint32_t settingssum = SEGMENT.speed + SEGMENT.intensity + SEGMENT.custom1 + SEGMENT.custom2 + SEGMENT.custom3 + SEGMENT.check2;
